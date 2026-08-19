@@ -6070,31 +6070,43 @@ function seedFromRaw(){
 function newId(){ STATE.__meta.idCounter += 1; return 'j' + STATE.__meta.idCounter; }
 
 async function loadState(){
+  // 1) Coba window.storage dulu (khusus kalau dibuka di dalam preview Claude)
   try{
     if(window.storage){
       const res = await window.storage.get(STORAGE_KEY, false);
       if(res && res.value) return JSON.parse(res.value);
     }
-  }catch(e){ console.warn('Gagal memuat data tersimpan:', e); }
+  }catch(e){ console.warn('Gagal memuat dari window.storage:', e); }
+  // 2) Fallback ke localStorage (dipakai saat file dibuka biasa / di-hosting, mis. GitHub Pages)
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){ console.warn('Gagal memuat dari localStorage:', e); }
   return null;
 }
 let SAVE_IN_FLIGHT = 0;
 async function saveState(){
   SAVE_IN_FLIGHT++;
+  let savedOk = false;
+  let usedFallback = false;
   try{
     if(window.storage){
       await window.storage.set(STORAGE_KEY, JSON.stringify(STATE), false);
-      flashSaveIndicator('Tersimpan otomatis', false);
-      return;
+      savedOk = true;
     }
-  }catch(e){
-    console.warn('Gagal menyimpan otomatis:', e);
+  }catch(e){ console.warn('Gagal menyimpan ke window.storage:', e); }
+  // Selalu tulis juga ke localStorage sebagai lapisan aman utama untuk file yang dibuka mandiri
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE));
+    savedOk = true;
+    usedFallback = true;
+  }catch(e){ console.warn('Gagal menyimpan ke localStorage:', e); }
+  SAVE_IN_FLIGHT--;
+  if(savedOk){
+    flashSaveIndicator('Tersimpan otomatis' + (usedFallback ? '' : ''), false);
+  } else {
     flashSaveIndicator('Gagal menyimpan otomatis — pakai "Ekspor Data" untuk backup', true);
-    return;
-  }finally{
-    SAVE_IN_FLIGHT--;
   }
-  flashSaveIndicator('Auto-save tidak tersedia — pakai "Ekspor Data" untuk backup', true);
 }
 window.addEventListener('beforeunload', (e)=>{
   if(SAVE_IN_FLIGHT > 0){
