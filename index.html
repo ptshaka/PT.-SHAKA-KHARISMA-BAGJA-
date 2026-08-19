@@ -343,6 +343,12 @@ table.jakon .num{ font-family:'IBM Plex Mono',monospace; text-align:right; white
 .dir-stat .n{ font-family:'IBM Plex Mono',monospace; font-weight:700; color:var(--navy); font-size:14px;}
 .dir-stat .l{ font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;}
 .dir-jobs{ margin-top:10px; padding-top:10px; border-top:1px dashed #e1e8ec; display:flex; flex-direction:column; gap:5px;}
+.dir-files-outer{ margin-top:10px; padding-top:10px; border-top:1px dashed #e1e8ec; }
+.dir-files-label{ font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); margin-bottom:6px; }
+.dir-files-list{ display:flex; flex-direction:column; gap:6px; }
+.dir-file-chip{ display:flex; align-items:center; gap:8px; background:#f7f9fa; border:1px solid #e1e8ec; border-radius:8px; padding:6px 10px; }
+.dir-file-name{ flex:1 1 auto; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dir-file-meta{ font-size:11px; color:var(--muted); flex:0 0 auto; }
 .dir-job-line{ font-size:12px; color:var(--ink); display:flex; justify-content:space-between; gap:10px;}
 .dir-job-line .bidangtag{
   font-family:'IBM Plex Mono',monospace; font-size:9.5px; text-transform:uppercase; color:var(--blue); background:#eaf2f8; padding:1px 6px; border-radius:2px; margin-right:6px;
@@ -6851,6 +6857,20 @@ function renderPersonilDir(term){
       </div>
     </div>`).join('');
 }
+function companyFilesOuterHTML(detail){
+  if(!detail || !detail.files || !detail.files.length) return '';
+  return `<div class="dir-files-outer">
+    <div class="dir-files-label">Dokumen Perusahaan (${detail.files.length})</div>
+    <div class="dir-files-list">
+      ${detail.files.map(f=>`
+        <div class="dir-file-chip" data-outer-file="${esc(f.id)}" title="${esc(f.fileName)}">
+          <span class="dir-file-name">📎 ${esc(f.fileName)}</span>
+          <span class="dir-file-meta">${fmtBytes(f.fileSize||0)}</span>
+          <button type="button" class="btn btn-sm" data-outer-download="${esc(f.id)}">⭳ Unduh</button>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
 function renderPerusahaanDir(term){
   let list = Array.from(DERIVED.perusahaanMap.values());
   if(term){
@@ -6889,6 +6909,7 @@ function renderPerusahaanDir(term){
       </div>
       ${detail && detail.status!=='aktif' && detail.statusReason ? `<div class="note-box" style="margin-top:10px;"><b>${detail.status==='blacklist'?'Blacklist':'Hold'}:</b> ${esc(detail.statusReason)}</div>` : ''}
       ${infoHTML}
+      ${companyFilesOuterHTML(detail)}
       <div class="dir-jobs">
         ${p.jobs.map(j=>`<div class="dir-job-line"><span><span class="bidangtag">${esc(BIDANG_LABEL[j.bidang]||j.bidang)}</span>${esc(j.nama_pekerjaan||'–')}</span><span class="mono">${fmtIDR(j.nilai_pagu)}</span></div>`).join('')}
       </div>
@@ -7760,6 +7781,16 @@ document.addEventListener('click', (e)=>{
   const picSendBtn = e.target.closest('[data-pic-send]');
   if(picSendBtn){
     openPicMessageModal(picSendBtn.dataset.bidang, picSendBtn.dataset.id, picSendBtn.dataset.picType);
+    return;
+  }
+  const outerDownloadBtn = e.target.closest('[data-outer-download]');
+  if(outerDownloadBtn){
+    e.stopPropagation();
+    const card = outerDownloadBtn.closest('[data-company]');
+    const companyName = card ? card.dataset.company : null;
+    const detail = companyName && STATE.__companies ? STATE.__companies[companyName] : null;
+    const f = detail && detail.files ? detail.files.find(x=>x.id===outerDownloadBtn.dataset.outerDownload) : null;
+    if(f) openDataUrl(f.fileData, f.fileType);
     return;
   }
   const companyCard = e.target.closest('[data-company]');
