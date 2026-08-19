@@ -6078,16 +6078,30 @@ async function loadState(){
   }catch(e){ console.warn('Gagal memuat data tersimpan:', e); }
   return null;
 }
+let SAVE_IN_FLIGHT = 0;
 async function saveState(){
+  SAVE_IN_FLIGHT++;
   try{
     if(window.storage){
       await window.storage.set(STORAGE_KEY, JSON.stringify(STATE), false);
       flashSaveIndicator('Tersimpan otomatis', false);
       return;
     }
-  }catch(e){ console.warn('Gagal menyimpan otomatis:', e); }
+  }catch(e){
+    console.warn('Gagal menyimpan otomatis:', e);
+    flashSaveIndicator('Gagal menyimpan otomatis — pakai "Ekspor Data" untuk backup', true);
+    return;
+  }finally{
+    SAVE_IN_FLIGHT--;
+  }
   flashSaveIndicator('Auto-save tidak tersedia — pakai "Ekspor Data" untuk backup', true);
 }
+window.addEventListener('beforeunload', (e)=>{
+  if(SAVE_IN_FLIGHT > 0){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 function flashSaveIndicator(msg, warn){
   const el = document.getElementById('save-indicator');
   if(!el) return;
