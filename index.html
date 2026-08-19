@@ -6080,23 +6080,42 @@ function seedFromRaw(){
 function newId(){ STATE.__meta.idCounter += 1; return 'j' + STATE.__meta.idCounter; }
 
 async function loadState(){
+  // 1) coba window.storage dulu (kalau dibuka dari dalam Claude)
   try{
     if(window.storage){
       const res = await window.storage.get(STORAGE_KEY, false);
       if(res && res.value) return JSON.parse(res.value);
     }
-  }catch(e){ console.warn('Gagal memuat data tersimpan:', e); }
+  }catch(e){ console.warn('window.storage tidak tersedia:', e); }
+  // 2) fallback ke localStorage (aktif kalau dibuka dari file lokal / GitHub Pages / hosting lain)
+  try{
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){ console.warn('localStorage tidak tersedia:', e); }
   return null;
 }
 async function saveState(){
+  let savedVia = null;
   try{
     if(window.storage){
       await window.storage.set(STORAGE_KEY, JSON.stringify(STATE), false);
-      flashSaveIndicator('Tersimpan otomatis', false);
-      return;
+      savedVia = 'claude';
     }
-  }catch(e){ console.warn('Gagal menyimpan otomatis:', e); }
-  flashSaveIndicator('Auto-save tidak tersedia — pakai "Ekspor Data" untuk backup', true);
+  }catch(e){ console.warn('Gagal simpan ke window.storage:', e); }
+  if(!savedVia){
+    try{
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE));
+      savedVia = 'local';
+    }catch(e){ console.warn('Gagal simpan ke localStorage:', e); }
+  }
+  if(savedVia){
+    hasUnsavedChanges = false;
+    flashSaveIndicator('Tersimpan otomatis di browser ini', false);
+  } else {
+    hasUnsavedChanges = true;
+    flashSaveIndicator('Auto-save tidak tersedia di browser ini — pakai "Ekspor Data" untuk backup', true);
+  }
+  updateUnsavedBanner();
 }
 function flashSaveIndicator(msg, warn){
   const el = document.getElementById('save-indicator');
@@ -6131,8 +6150,6 @@ async function afterMutate(){
   renderPerusahaanView();
   renderEmailView();
   renderUmumView();
-  hasUnsavedChanges = true;
-  updateUnsavedBanner();
 }
 
 /* ================= Derived aggregates ================= */
@@ -7875,7 +7892,7 @@ document.addEventListener('keydown', (e)=>{
   }
   STATE.__meta.adminEmails = STATE.__meta.adminEmails.map(e=> typeof e==='string' ? {nama:null, email:e} : e);
   if(!STATE.__meta.emailjs) STATE.__meta.emailjs = {publicKey:null, serviceId:null, templateId:null};
-  if(!loaded){ await saveState(); }
+  if(!loaded){ await saveState(); } else { flashSaveIndicator('Tersimpan otomatis di browser ini', false); }
   computeDerived();
   renderKPIs();
   renderChart();
