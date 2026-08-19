@@ -173,6 +173,17 @@ h1,h2,h3,.display{ font-family: 'Space Grotesk', sans-serif; }
 }
 .reminder-row:hover{ border-color:var(--blue); background:#f3f8fb; transform: translateX(2px); }
 .reminder-badges{ display:flex; flex-direction:column; gap:4px; flex-shrink:0; align-items:flex-start; }
+.search-results-list{ display:flex; flex-direction:column; gap:6px; margin-top:12px; }
+.search-result-row{
+  display:flex; align-items:center; gap:10px; padding:9px 12px; background:var(--paper); border:1px solid #e6ecf0; border-radius:2px;
+  cursor:pointer; transition: border-color .12s ease, background .12s ease, transform .12s ease;
+}
+.search-result-row:hover{ border-color:var(--blue); background:#f3f8fb; transform: translateX(2px); }
+.search-result-info{ flex:1; min-width:0; }
+.search-result-name{ font-weight:600; color:var(--navy); font-size:13px; }
+.search-result-sub{ font-size:11.5px; color:var(--muted); margin-top:1px; }
+.search-result-row .chev{ color:var(--blue); font-size:14px; flex-shrink:0; }
+.search-hint{ font-size:12px; color:var(--muted); margin-top:8px; }
 .reminder-info{ flex:1; min-width:0; }
 .reminder-name{ font-weight:600; color:var(--navy); font-size:13px; }
 .reminder-sub{ font-size:11.5px; color:var(--muted); margin-top:2px; }
@@ -475,6 +486,12 @@ table.jakon td.actions{ white-space:nowrap; }
 
   <div id="view-ringkasan" class="view">
     <div class="kpis" id="kpis"></div>
+
+    <div class="view-title"><h2>Cari Pekerjaan Cepat</h2></div>
+    <div class="chart-card" style="margin-bottom:26px;">
+      <div class="search" style="max-width:520px;"><input type="text" id="search-global" placeholder="Ketik nama pekerjaan, perusahaan, atau personil…"></div>
+      <div id="global-search-results"></div>
+    </div>
 
     <div class="view-title"><h2>Ringkasan Nilai per Bidang</h2></div>
     <div class="chart-card">
@@ -6083,6 +6100,7 @@ async function afterMutate(){
   computeDerived();
   renderKPIs();
   renderChart();
+  renderGlobalSearch();
   renderReminders();
   renderMainNav();
   renderTabs();
@@ -6331,6 +6349,41 @@ function jumpToJob(bidang, id){
     card.classList.add('flash-highlight');
     setTimeout(()=> card.classList.remove('flash-highlight'), 1600);
   }
+}
+
+let globalSearchTerm = '';
+function renderGlobalSearch(){
+  const box = document.getElementById('global-search-results');
+  if(!box) return;
+  const term = globalSearchTerm.trim();
+  if(!term){
+    box.innerHTML = `<div class="search-hint">Cari lintas semua bidang (termasuk JAKON) — hasilnya bisa langsung diklik buat loncat ke pekerjaannya.</div>`;
+    return;
+  }
+  const t = term.toLowerCase();
+  const std = DERIVED.allJobs.filter(j=> jobMatches(j, term));
+  const jakon = DERIVED.jakonJobs.filter(j=> (j.nama_pekerjaan||'').toLowerCase().includes(t) || (j.perusahaan||'').toLowerCase().includes(t));
+  const combined = [...std, ...jakon];
+  if(!combined.length){
+    box.innerHTML = `<div class="empty" style="padding:24px;">Tidak ada pekerjaan yang cocok dengan "${esc(term)}".</div>`;
+    return;
+  }
+  const shown = combined.slice(0, 10);
+  box.innerHTML = `<div class="search-results-list">
+    ${shown.map(j=>`
+      <div class="search-result-row" data-jump-bidang="${esc(j.bidang)}" data-jump-id="${esc(j._id)}">
+        <span class="bidangtag">${esc(BIDANG_LABEL[j.bidang]||j.bidang)}</span>
+        <div class="search-result-info">
+          <div class="search-result-name">${esc(j.nama_pekerjaan||'(tanpa nama)')}</div>
+          <div class="search-result-sub">${j.perusahaan? esc(j.perusahaan) : '–'}</div>
+        </div>
+        <span class="chev">›</span>
+      </div>`).join('')}
+  </div>
+  ${combined.length > 10 ? `<div class="search-hint">Menampilkan 10 dari ${combined.length} hasil — persempit kata kuncinya buat lihat yang lain.</div>` : ''}`;
+  box.querySelectorAll('.search-result-row').forEach(row=>{
+    row.addEventListener('click', ()=> jumpToJob(row.dataset.jumpBidang, row.dataset.jumpId));
+  });
 }
 async function sendSingleReminderEmail(bidang, id){
   const job = findJob(bidang, id);
@@ -7637,6 +7690,10 @@ function showToast(msg, isErr){
 }
 
 /* ================= Event wiring ================= */
+document.getElementById('search-global').addEventListener('input', (e)=>{
+  globalSearchTerm = e.target.value;
+  renderGlobalSearch();
+});
 document.getElementById('search').addEventListener('input', (e)=>{
   searchTerm = e.target.value.trim();
   renderContent();
@@ -7716,6 +7773,7 @@ document.addEventListener('keydown', (e)=>{
   renderPerusahaanView();
   renderEmailView();
   renderUmumView();
+  renderGlobalSearch();
   document.getElementById('email-list-card').addEventListener('click', handleEmailListClick);
 })();
 </script>
