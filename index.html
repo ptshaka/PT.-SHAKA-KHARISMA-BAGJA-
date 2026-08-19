@@ -7052,6 +7052,15 @@ function collectPersonil(form){
   return out;
 }
 
+function nextJobNumber(bidang){
+  const list = STATE[bidang] || [];
+  let max = 0;
+  list.forEach(j=>{
+    const n = Number(j.no);
+    if(!isNaN(n) && n > max) max = n;
+  });
+  return max + 1;
+}
 function addOrEditStandardJob(bidang, job){
   const isNew = !job;
   const data = job || {};
@@ -7067,7 +7076,7 @@ function addOrEditStandardJob(bidang, job){
       target.personil = collectPersonil(form);
       if(isNew){
         target._id = newId();
-        target.no = null;
+        target.no = nextJobNumber(bidang);
         STATE[bidang].push(target);
       } else {
         const idx = STATE[bidang].findIndex(j=>j._id===job._id);
@@ -7094,7 +7103,7 @@ function addOrEditJakon(job){
       if(!target.nama_pekerjaan){ alert('Nama pekerjaan wajib diisi.'); return false; }
       if(isNew){
         target._id = newId();
-        target.no = null;
+        target.no = nextJobNumber('JAKON');
         STATE['JAKON'].push(target);
       } else {
         const idx = STATE['JAKON'].findIndex(j=>j._id===job._id);
