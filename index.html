@@ -117,6 +117,13 @@ h1,h2,h3,.display{ font-family: 'Space Grotesk', sans-serif; }
 .main-nav-btn .nav-badge{
   background:var(--red); color:#fff; font-size:10px; font-weight:700; padding:1px 6.5px; border-radius:20px; font-family:'IBM Plex Mono',monospace;
 }
+.unsaved-banner{
+  background: var(--red-bg); color: var(--red); border-bottom: 1px solid #f0c3c0;
+  padding: 9px 24px; font-size: 12.5px; text-align:center; position:sticky; top:0; z-index:29;
+  animation: pulseBanner 2s ease-in-out infinite;
+}
+@keyframes pulseBanner{ 0%,100%{ background:var(--red-bg); } 50%{ background:#fbdad6; } }
+@media (prefers-reduced-motion: reduce){ .unsaved-banner{ animation:none; } }
 
 /* ---------- View title (replaces old numbered section-title) ---------- */
 .view-title{ margin: 4px 0 14px; }
@@ -343,12 +350,6 @@ table.jakon .num{ font-family:'IBM Plex Mono',monospace; text-align:right; white
 .dir-stat .n{ font-family:'IBM Plex Mono',monospace; font-weight:700; color:var(--navy); font-size:14px;}
 .dir-stat .l{ font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;}
 .dir-jobs{ margin-top:10px; padding-top:10px; border-top:1px dashed #e1e8ec; display:flex; flex-direction:column; gap:5px;}
-.dir-files-outer{ margin-top:10px; padding-top:10px; border-top:1px dashed #e1e8ec; }
-.dir-files-label{ font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); margin-bottom:6px; }
-.dir-files-list{ display:flex; flex-direction:column; gap:6px; }
-.dir-file-chip{ display:flex; align-items:center; gap:8px; background:#f7f9fa; border:1px solid #e1e8ec; border-radius:8px; padding:6px 10px; }
-.dir-file-name{ flex:1 1 auto; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.dir-file-meta{ font-size:11px; color:var(--muted); flex:0 0 auto; }
 .dir-job-line{ font-size:12px; color:var(--ink); display:flex; justify-content:space-between; gap:10px;}
 .dir-job-line .bidangtag{
   font-family:'IBM Plex Mono',monospace; font-size:9.5px; text-transform:uppercase; color:var(--blue); background:#eaf2f8; padding:1px 6px; border-radius:2px; margin-right:6px;
@@ -487,6 +488,9 @@ table.jakon td.actions{ white-space:nowrap; }
 <nav class="main-nav">
   <div class="main-nav-inner" id="main-nav"></div>
 </nav>
+<div class="unsaved-banner" id="unsaved-banner" hidden>
+  ⚠️ Ada perubahan yang <b>belum di-backup</b> — klik <b>"Ekspor Data (.json)"</b> di menu Daftar Pekerjaan sebelum menutup/refresh halaman ini, kalau nggak nanti hilang.
+</div>
 
 <div class="wrap">
 
@@ -6076,56 +6080,43 @@ function seedFromRaw(){
 function newId(){ STATE.__meta.idCounter += 1; return 'j' + STATE.__meta.idCounter; }
 
 async function loadState(){
-  // 1) Coba window.storage dulu (khusus kalau dibuka di dalam preview Claude)
   try{
     if(window.storage){
       const res = await window.storage.get(STORAGE_KEY, false);
       if(res && res.value) return JSON.parse(res.value);
     }
-  }catch(e){ console.warn('Gagal memuat dari window.storage:', e); }
-  // 2) Fallback ke localStorage (dipakai saat file dibuka biasa / di-hosting, mis. GitHub Pages)
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) return JSON.parse(raw);
-  }catch(e){ console.warn('Gagal memuat dari localStorage:', e); }
+  }catch(e){ console.warn('Gagal memuat data tersimpan:', e); }
   return null;
 }
-let SAVE_IN_FLIGHT = 0;
 async function saveState(){
-  SAVE_IN_FLIGHT++;
-  let savedOk = false;
-  let usedFallback = false;
   try{
     if(window.storage){
       await window.storage.set(STORAGE_KEY, JSON.stringify(STATE), false);
-      savedOk = true;
+      flashSaveIndicator('Tersimpan otomatis', false);
+      return;
     }
-  }catch(e){ console.warn('Gagal menyimpan ke window.storage:', e); }
-  // Selalu tulis juga ke localStorage sebagai lapisan aman utama untuk file yang dibuka mandiri
-  try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE));
-    savedOk = true;
-    usedFallback = true;
-  }catch(e){ console.warn('Gagal menyimpan ke localStorage:', e); }
-  SAVE_IN_FLIGHT--;
-  if(savedOk){
-    flashSaveIndicator('Tersimpan otomatis' + (usedFallback ? '' : ''), false);
-  } else {
-    flashSaveIndicator('Gagal menyimpan otomatis — pakai "Ekspor Data" untuk backup', true);
-  }
+  }catch(e){ console.warn('Gagal menyimpan otomatis:', e); }
+  flashSaveIndicator('Auto-save tidak tersedia — pakai "Ekspor Data" untuk backup', true);
 }
-window.addEventListener('beforeunload', (e)=>{
-  if(SAVE_IN_FLIGHT > 0){
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
 function flashSaveIndicator(msg, warn){
   const el = document.getElementById('save-indicator');
   if(!el) return;
   el.textContent = msg;
   el.style.color = warn ? 'var(--red)' : 'var(--muted)';
 }
+
+let hasUnsavedChanges = false;
+function updateUnsavedBanner(){
+  const el = document.getElementById('unsaved-banner');
+  if(el) el.hidden = !hasUnsavedChanges;
+}
+window.addEventListener('beforeunload', (e)=>{
+  if(hasUnsavedChanges){
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
+});
 
 async function afterMutate(){
   await saveState();
@@ -6140,6 +6131,8 @@ async function afterMutate(){
   renderPerusahaanView();
   renderEmailView();
   renderUmumView();
+  hasUnsavedChanges = true;
+  updateUnsavedBanner();
 }
 
 /* ================= Derived aggregates ================= */
@@ -6325,6 +6318,7 @@ function renderReminders(){
   if(!box) return;
   const list = getReminderList();
   const adminEmails = (STATE.__meta && STATE.__meta.adminEmails) || [];
+  const waContacts = getAdminWaContacts();
   const listHTML = !list.length
     ? `<div class="reminder-empty">✓ Tidak ada pekerjaan yang mendekati atau melewati tenggat kontrak/pengiriman/pencairan.</div>`
     : `<div class="reminder-list">
@@ -6341,7 +6335,8 @@ function renderReminders(){
               <div style="margin-top:6px;"><span class="badge ${action.tone}">${esc(action.text)}</span></div>
             </div>
             <div class="reminder-actions">
-              <button type="button" class="btn btn-sm" data-send-single data-jump-bidang="${esc(j.bidang)}" data-jump-id="${esc(j._id)}" title="Kirim pengingat email khusus pekerjaan ini">✉ Kirim</button>
+              <button type="button" class="btn btn-sm" data-send-single data-jump-bidang="${esc(j.bidang)}" data-jump-id="${esc(j._id)}" title="Kirim pengingat email khusus pekerjaan ini">✉ Email</button>
+              ${waContacts.length ? `<button type="button" class="btn btn-sm" data-send-single-wa data-jump-bidang="${esc(j.bidang)}" data-jump-id="${esc(j._id)}" title="Kirim pengingat WhatsApp khusus pekerjaan ini">💬 WA</button>` : ''}
             </div>
           </div>`;
         }).join('')}
@@ -6349,18 +6344,28 @@ function renderReminders(){
   box.innerHTML = `
     ${listHTML}
     <div class="data-ops" style="margin-top:12px;">
-      <button type="button" class="btn btn-sm btn-primary" id="send-reminder-btn">✉ Kirim Semua Sekaligus</button>
+      <button type="button" class="btn btn-sm btn-primary" id="send-reminder-btn">✉ Kirim Semua Sekaligus (Email)</button>
+      ${waContacts.map((c,i)=>`<button type="button" class="btn btn-sm" data-send-all-wa="${i}">💬 WA ke ${esc(c.nama||c.whatsapp)}</button>`).join('')}
       <button type="button" class="btn btn-sm btn-ghost" id="set-admin-email-btn">⚙ Daftar Email Admin (${adminEmails.length})</button>
     </div>
   `;
   document.getElementById('send-reminder-btn').addEventListener('click', sendReminderEmail);
   document.getElementById('set-admin-email-btn').addEventListener('click', ()=>{ activeView='EMAIL'; renderMainNav(); showView(); });
+  box.querySelectorAll('[data-send-all-wa]').forEach(btn=>{
+    btn.addEventListener('click', ()=> sendReminderWA(waContacts[Number(btn.dataset.sendAllWa)]));
+  });
   box.querySelectorAll('.reminder-row').forEach(row=>{
     row.addEventListener('click', (e)=>{
       const sendBtn = e.target.closest('[data-send-single]');
       if(sendBtn){
         e.stopPropagation();
         sendSingleReminderEmail(row.dataset.jumpBidang, row.dataset.jumpId);
+        return;
+      }
+      const sendWaBtn = e.target.closest('[data-send-single-wa]');
+      if(sendWaBtn){
+        e.stopPropagation();
+        sendSingleReminderWA(row.dataset.jumpBidang, row.dataset.jumpId);
         return;
       }
       jumpToJob(row.dataset.jumpBidang, row.dataset.jumpId);
@@ -6417,11 +6422,7 @@ function renderGlobalSearch(){
     row.addEventListener('click', ()=> jumpToJob(row.dataset.jumpBidang, row.dataset.jumpId));
   });
 }
-async function sendSingleReminderEmail(bidang, id){
-  const job = findJob(bidang, id);
-  if(!job){ showToast('Pekerjaan tidak ditemukan.', true); return; }
-  const to = getAdminEmailAddresses().join(',');
-  if(!to){ showToast('Belum ada email admin yang diatur — isi dulu lewat "Daftar Email".', true); return; }
+function buildSingleReminderMessage(job, bidang){
   const alerts = getJobAlerts(job);
   const alertLine = alerts.length ? alerts.map(a=>a.text).join(' | ') : 'Menjelang tenggat';
   const action = nextActionInfo(job);
@@ -6436,15 +6437,51 @@ async function sendSingleReminderEmail(bidang, id){
     `Dokumen Lengkap : ${docCompleteCount(job)}/6\n` +
     `Tindak Lanjut   : ${action.text}\n\n` +
     `Mohon segera ditindaklanjuti.`;
+  return {subject, body};
+}
+async function sendSingleReminderEmail(bidang, id){
+  const job = findJob(bidang, id);
+  if(!job){ showToast('Pekerjaan tidak ditemukan.', true); return; }
+  const to = getAdminEmailAddresses().join(',');
+  if(!to){ showToast('Belum ada email admin yang diatur — isi dulu lewat "Daftar Email".', true); return; }
+  const {subject, body} = buildSingleReminderMessage(job, bidang);
   const result = await sendEmailUniversal(to, subject, body);
   if(result.method==='emailjs') showToast(`Email untuk "${job.nama_pekerjaan||'pekerjaan ini'}" berhasil terkirim otomatis.`);
   else if(result.method==='mailto') showToast(`Draft email untuk "${job.nama_pekerjaan||'pekerjaan ini'}" dibuka.`);
   else showToast('Gagal mengirim email.', true);
 }
+function sendSingleReminderWA(bidang, id){
+  const job = findJob(bidang, id);
+  if(!job){ showToast('Pekerjaan tidak ditemukan.', true); return; }
+  const contacts = getAdminWaContacts();
+  if(!contacts.length){ showToast('Belum ada nomor WhatsApp admin — isi dulu lewat "Daftar Email".', true); return; }
+  const {subject, body} = buildSingleReminderMessage(job, bidang);
+  const waMessage = `*${subject}*\n\n${body}`;
+  if(openWaLink(contacts[0].whatsapp, waMessage)) showToast(`WhatsApp ke ${contacts[0].nama||contacts[0].whatsapp} dibuka.`);
+}
 function getAdminEmailAddresses(){
   return ((STATE.__meta && STATE.__meta.adminEmails) || []).map(e=> typeof e==='string' ? e : e.email).filter(Boolean);
 }
+function getAdminWaContacts(){
+  return ((STATE.__meta && STATE.__meta.adminEmails) || []).filter(e=> e && typeof e==='object' && e.whatsapp);
+}
 /* ================= Universal email sender (EmailJS jika diatur, fallback mailto) ================= */
+/* ================= WhatsApp helper ================= */
+function normalizePhone(raw){
+  let p = (raw||'').replace(/[^\d]/g,'');
+  if(!p) return '';
+  if(p.startsWith('0')) p = '62' + p.slice(1);
+  else if(!p.startsWith('62')) p = '62' + p;
+  return p;
+}
+function openWaLink(rawPhone, message){
+  const p = normalizePhone(rawPhone);
+  if(!p){ showToast('Nomor WhatsApp tidak valid.', true); return false; }
+  const url = `https://wa.me/${p}?text=${encodeURIComponent(message)}`;
+  window.open(url, '_blank');
+  return true;
+}
+
 async function sendEmailUniversal(to, subject, body){
   const cfg = (STATE.__meta && STATE.__meta.emailjs) || {};
   const configured = !!(cfg.publicKey && cfg.serviceId && cfg.templateId);
@@ -6522,9 +6559,10 @@ async function sendTestEmail(){
 function emailRowHTML(entry, idx){
   entry = entry || {};
   return `<div class="prow" data-erow="${idx}">
-    <button type="button" class="prow-remove" data-remove-erow title="Hapus email ini">&times;</button>
+    <button type="button" class="prow-remove" data-remove-erow title="Hapus kontak ini">&times;</button>
     <input data-e="nama" value="${esc(entry.nama||'')}" placeholder="Nama (opsional)">
-    <input data-e="email" type="email" value="${esc(entry.email||'')}" placeholder="nama@perusahaan.com">
+    <input data-e="email" type="email" value="${esc(entry.email||'')}" placeholder="Email — nama@perusahaan.com">
+    <input data-e="whatsapp" type="text" value="${esc(entry.whatsapp||'')}" placeholder="No. WhatsApp — 08123456789" class="full">
   </div>`;
 }
 function renderEmailView(){
@@ -6532,13 +6570,13 @@ function renderEmailView(){
   if(!box) return;
   const emails = ((STATE.__meta && STATE.__meta.adminEmails) || []);
   box.innerHTML = `
-    <p style="font-size:12.5px;color:var(--muted);margin:0 0 14px;">Semua alamat di bawah ini akan jadi penerima pas kamu kirim pengingat dari halaman Pengingat — baik "Kirim Semua Sekaligus" maupun kirim per-pekerjaan. Ubah, tambah, atau hapus alamat di sini kapan saja.</p>
+    <p style="font-size:12.5px;color:var(--muted);margin:0 0 14px;">Semua kontak di bawah ini bisa jadi penerima pas kamu kirim pengingat dari halaman Pengingat — lewat Email dan/atau WhatsApp. Isi salah satu atau dua-duanya, terserah. Ubah, tambah, atau hapus kontak di sini kapan saja.</p>
     <div class="personil-editor" id="email-editor-page">
       ${emails.length ? emails.map((e,i)=>emailRowHTML(e,i)).join('') : emailRowHTML({}, 0)}
     </div>
     <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
-      <button type="button" class="btn btn-sm btn-ghost" id="add-email-row-page">+ Tambah Email</button>
-      <button type="button" class="btn btn-sm btn-primary" id="save-email-list-btn" style="margin-left:auto;">Simpan Daftar Email</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="add-email-row-page">+ Tambah Kontak</button>
+      <button type="button" class="btn btn-sm btn-primary" id="save-email-list-btn" style="margin-left:auto;">Simpan Daftar Kontak</button>
     </div>
   `;
 }
@@ -6564,19 +6602,21 @@ async function saveEmailListFromPage(){
   const raw = [...rows].map(row=>({
     nama: row.querySelector('[data-e="nama"]').value.trim() || null,
     email: row.querySelector('[data-e="email"]').value.trim(),
-  })).filter(r=>r.email);
-  const valid = [], invalid = [];
-  raw.forEach(r=>{ if(/^\S+@\S+\.\S+$/.test(r.email)) valid.push(r); else invalid.push(r.email); });
+    whatsapp: row.querySelector('[data-e="whatsapp"]').value.trim() || null,
+  })).filter(r=> r.email || r.whatsapp);
+  const valid = [], invalidEmails = [];
+  raw.forEach(r=>{
+    if(r.email && !/^\S+@\S+\.\S+$/.test(r.email)){ invalidEmails.push(r.email); r.email = null; }
+    if(r.email || r.whatsapp) valid.push(r);
+  });
   const seen = new Set(); const unique = [];
-  valid.forEach(r=>{ if(!seen.has(r.email)){ seen.add(r.email); unique.push(r); } });
+  valid.forEach(r=>{ const key = (r.email||'')+'|'+(r.whatsapp||''); if(!seen.has(key)){ seen.add(key); unique.push(r); } });
   if(!STATE.__meta) STATE.__meta = {idCounter:0};
   STATE.__meta.adminEmails = unique;
   await afterMutate();
-  showToast(invalid.length ? `Disimpan. ${invalid.length} alamat dilewati (format tidak valid): ${invalid.join(', ')}` : 'Daftar email admin disimpan.', !!invalid.length);
+  showToast(invalidEmails.length ? `Disimpan. Format email tidak valid dilewati: ${invalidEmails.join(', ')}` : 'Daftar kontak admin disimpan.', !!invalidEmails.length);
 }
-async function sendReminderEmail(){
-  const list = getReminderList();
-  if(!list.length){ showToast('Tidak ada pengingat yang perlu dikirim saat ini.'); return; }
+function buildBulkReminderMessage(list){
   const lines = list.map(({job:j, alerts})=>{
     const alertLine = alerts.map(a=>a.text).join(' | ');
     const action = nextActionInfo(j);
@@ -6584,12 +6624,26 @@ async function sendReminderEmail(){
   });
   const subject = `Pengingat Persiapan Dokumen Pencairan (${list.length} pekerjaan)`;
   const body = `Berikut daftar pekerjaan yang mendekati/telah melewati tenggat kontrak, pengiriman, atau pencairan:\n\n${lines.join('\n')}\n\nMohon segera dilengkapi dokumennya.`;
+  return {subject, body};
+}
+async function sendReminderEmail(){
+  const list = getReminderList();
+  if(!list.length){ showToast('Tidak ada pengingat yang perlu dikirim saat ini.'); return; }
+  const {subject, body} = buildBulkReminderMessage(list);
   const to = getAdminEmailAddresses().join(',');
   if(!to){ showToast('Belum ada email admin yang diatur — isi dulu lewat "Daftar Email".', true); return; }
   const result = await sendEmailUniversal(to, subject, body);
   if(result.method==='emailjs') showToast(`Email pengingat berhasil terkirim otomatis ke ${to.split(',').length} penerima.`);
   else if(result.method==='mailto') showToast(`Draft email pengingat dibuka untuk ${to.split(',').length} penerima — cek aplikasi email kamu untuk kirim.`);
   else showToast('Gagal mengirim email.', true);
+}
+function sendReminderWA(contact){
+  if(!contact || !contact.whatsapp){ showToast('Kontak WhatsApp tidak valid.', true); return; }
+  const list = getReminderList();
+  if(!list.length){ showToast('Tidak ada pengingat yang perlu dikirim saat ini.'); return; }
+  const {subject, body} = buildBulkReminderMessage(list);
+  const waMessage = `*${subject}*\n\n${body}`;
+  if(openWaLink(contact.whatsapp, waMessage)) showToast(`WhatsApp ke ${contact.nama||contact.whatsapp} dibuka.`);
 }
 
 /* ================= Main nav (header menu) ================= */
@@ -6740,20 +6794,20 @@ function renderJobCard(j){
           </div>
           ${(function(){
             const pic = [
-              ['laporan','Laporan', j.email_laporan],
-              ['invoice','Invoice', j.email_invoice],
-              ['ded','DED', j.pic_ded],
-              ['rks','RKS', j.pic_rks],
-              ['rab','RAB', j.pic_rab],
-            ].filter(x=>x[2]);
+              ['laporan','Laporan', j.email_laporan, j.wa_laporan],
+              ['invoice','Invoice', j.email_invoice, j.wa_invoice],
+              ['ded','DED', j.pic_ded, j.wa_ded],
+              ['rks','RKS', j.pic_rks, j.wa_rks],
+              ['rab','RAB', j.pic_rab, j.wa_rab],
+            ].filter(x=>x[2] || x[3]);
             if(!pic.length) return '';
             return `<div class="k">PIC Pekerjaan <span style="text-transform:none;color:var(--muted);">(klik "Kirim Pesan" utk notif langsung ke PIC)</span></div>
               <div class="pic-list">
-                ${pic.map(([type,label,email])=>`
+                ${pic.map(([type,label,email,wa])=>`
                   <div class="pic-row">
                     <span class="pic-label">${esc(label)}</span>
-                    <span class="pic-email">${esc(email)}</span>
-                    <button type="button" class="btn btn-sm" data-pic-send data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-pic-type="${type}">✉ Kirim Pesan</button>
+                    <span class="pic-email">${email? '✉ '+esc(email): ''}${email&&wa?' &middot; ':''}${wa? '💬 '+esc(wa): ''}</span>
+                    <button type="button" class="btn btn-sm" data-pic-send data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-pic-type="${type}">Kirim Pesan</button>
                   </div>`).join('')}
               </div>`;
           })()}
@@ -6857,20 +6911,6 @@ function renderPersonilDir(term){
       </div>
     </div>`).join('');
 }
-function companyFilesOuterHTML(detail){
-  if(!detail || !detail.files || !detail.files.length) return '';
-  return `<div class="dir-files-outer">
-    <div class="dir-files-label">Dokumen Perusahaan (${detail.files.length})</div>
-    <div class="dir-files-list">
-      ${detail.files.map(f=>`
-        <div class="dir-file-chip" data-outer-file="${esc(f.id)}" title="${esc(f.fileName)}">
-          <span class="dir-file-name">📎 ${esc(f.fileName)}</span>
-          <span class="dir-file-meta">${fmtBytes(f.fileSize||0)}</span>
-          <button type="button" class="btn btn-sm" data-outer-download="${esc(f.id)}">⭳ Unduh</button>
-        </div>`).join('')}
-    </div>
-  </div>`;
-}
 function renderPerusahaanDir(term){
   let list = Array.from(DERIVED.perusahaanMap.values());
   if(term){
@@ -6909,7 +6949,6 @@ function renderPerusahaanDir(term){
       </div>
       ${detail && detail.status!=='aktif' && detail.statusReason ? `<div class="note-box" style="margin-top:10px;"><b>${detail.status==='blacklist'?'Blacklist':'Hold'}:</b> ${esc(detail.statusReason)}</div>` : ''}
       ${infoHTML}
-      ${companyFilesOuterHTML(detail)}
       <div class="dir-jobs">
         ${p.jobs.map(j=>`<div class="dir-job-line"><span><span class="bidangtag">${esc(BIDANG_LABEL[j.bidang]||j.bidang)}</span>${esc(j.nama_pekerjaan||'–')}</span><span class="mono">${fmtIDR(j.nilai_pagu)}</span></div>`).join('')}
       </div>
@@ -7017,11 +7056,16 @@ const STANDARD_FIELD_GROUPS = [
     {key:'status_kirim', label:'Kirim', type:'select', options:OPT_KIRIM},
   ]},
   {title:'PIC Pekerjaan', fields:[
-    {key:'email_laporan', label:'PIC Laporan', type:'text'},
-    {key:'email_invoice', label:'PIC Invoice', type:'text'},
-    {key:'pic_ded', label:'PIC DED', type:'text'},
-    {key:'pic_rks', label:'PIC RKS', type:'text'},
-    {key:'pic_rab', label:'PIC RAB', type:'text'},
+    {key:'email_laporan', label:'Email PIC Laporan', type:'text'},
+    {key:'wa_laporan', label:'WA PIC Laporan', type:'text'},
+    {key:'email_invoice', label:'Email PIC Invoice', type:'text'},
+    {key:'wa_invoice', label:'WA PIC Invoice', type:'text'},
+    {key:'pic_ded', label:'Email PIC DED', type:'text'},
+    {key:'wa_ded', label:'WA PIC DED', type:'text'},
+    {key:'pic_rks', label:'Email PIC RKS', type:'text'},
+    {key:'wa_rks', label:'WA PIC RKS', type:'text'},
+    {key:'pic_rab', label:'Email PIC RAB', type:'text'},
+    {key:'wa_rab', label:'WA PIC RAB', type:'text'},
   ]},
   {title:'Catatan', fields:[
     {key:'catatan', label:'Catatan', type:'textarea', full:true},
@@ -7264,6 +7308,7 @@ const PIC_PROMPTS = {
   rab:     {label:'RAB', text:'Mohon segera kirim RAB (Rencana Anggaran Biaya) untuk pekerjaan ini.'},
 };
 const PIC_FIELD_MAP = {laporan:'email_laporan', invoice:'email_invoice', ded:'pic_ded', rks:'pic_rks', rab:'pic_rab'};
+const PIC_WA_FIELD_MAP = {laporan:'wa_laporan', invoice:'wa_invoice', ded:'wa_ded', rks:'wa_rks', rab:'wa_rab'};
 const DEADLINE_OPTIONS = [
   {v:'', l:'Tidak pakai batas waktu'},
   {v:'0', l:'Hari ini'},
@@ -7299,13 +7344,18 @@ function openPicMessageModal(bidang, id, picType){
   const job = findJob(bidang, id);
   if(!job) return;
   const email = job[PIC_FIELD_MAP[picType]];
-  if(!email){ showToast('Email PIC ini belum diisi.', true); return; }
+  const wa = job[PIC_WA_FIELD_MAP[picType]];
+  if(!email && !wa){ showToast('Email/WhatsApp PIC ini belum diisi.', true); return; }
   const preset = PIC_PROMPTS[picType] || {label:picType, text:'Mohon segera ditindaklanjuti.'};
   const initialDeadline = '3'; // default sesuai kebiasaan: 3 hari
   const defaultSubject = buildPicSubject(preset, job, initialDeadline);
   const defaultBody = buildPicBody(preset, job, bidang, initialDeadline);
+  const kepadaHTML = [
+    email ? `<div>✉ ${esc(email)}</div>` : '',
+    wa ? `<div>💬 ${esc(wa)}</div>` : '',
+  ].join('');
   const bodyHTML = `
-    <div class="field"><label>Kepada (PIC ${esc(preset.label)})</label><input type="text" value="${esc(email)}" readonly style="background:var(--paper-2);"></div>
+    <div class="field"><label>Kepada (PIC ${esc(preset.label)})</label><div style="padding:8px 10px;background:var(--paper-2);border:1px solid #cfdae1;border-radius:2px;font-size:13px;">${kepadaHTML}</div></div>
     <div class="field-grid">
       <div class="field"><label>Batas Waktu</label>
         <select id="pic-msg-deadline">
@@ -7317,14 +7367,16 @@ function openPicMessageModal(bidang, id, picType){
         <input type="number" id="pic-msg-custom-days" min="0" value="3">
       </div>
     </div>
-    <div class="field"><label>Subjek</label><input type="text" id="pic-msg-subject" value="${esc(defaultSubject)}"></div>
+    <div class="field"><label>Subjek <span style="text-transform:none;color:var(--muted);">(dipakai buat email; utk WA otomatis jadi baris tebal pembuka)</span></label><input type="text" id="pic-msg-subject" value="${esc(defaultSubject)}"></div>
     <div class="field"><label>Pesan <span style="text-transform:none;color:var(--muted);">(otomatis nyusun ulang kalau batas waktu diganti — bisa diedit manual juga sebelum kirim)</span></label><textarea id="pic-msg-body" style="min-height:150px;">${esc(defaultBody)}</textarea></div>
+    ${wa ? `<button type="button" class="btn btn-primary" id="pic-msg-wa-btn" style="width:100%;margin-top:4px;">💬 Kirim via WhatsApp</button>` : ''}
   `;
   const modal = showModal({
     title: `Kirim Pesan ke PIC ${preset.label}`,
-    submitLabel: '✉ Kirim',
+    submitLabel: email ? '✉ Kirim Email' : '✉ Kirim Email (belum diisi)',
     bodyHTML,
     onSubmit: async (form)=>{
+      if(!email){ showToast('Email PIC ini belum diisi — pakai tombol WhatsApp di atas.', true); return false; }
       const subject = form.querySelector('#pic-msg-subject').value.trim() || defaultSubject;
       const body = form.querySelector('#pic-msg-body').value.trim() || defaultBody;
       const result = await sendEmailUniversal(email, subject, body);
@@ -7334,6 +7386,15 @@ function openPicMessageModal(bidang, id, picType){
       return true;
     }
   });
+  const waBtn = modal.querySelector('#pic-msg-wa-btn');
+  if(waBtn){
+    waBtn.addEventListener('click', ()=>{
+      const subject = modal.querySelector('#pic-msg-subject').value.trim() || defaultSubject;
+      const body = modal.querySelector('#pic-msg-body').value.trim() || defaultBody;
+      const waMessage = `*${subject}*\n\n${body}`;
+      if(openWaLink(wa, waMessage)) showToast(`WhatsApp ke PIC ${preset.label} dibuka — tinggal klik Send di sana.`);
+    });
+  }
   const deadlineSelect = modal.querySelector('#pic-msg-deadline');
   const customWrap = modal.querySelector('#pic-msg-custom-wrap');
   const customInput = modal.querySelector('#pic-msg-custom-days');
@@ -7689,7 +7750,9 @@ function exportData(){
     a.download = `pekerjaan-2026-backup-${new Date().toISOString().slice(0,10)}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=> URL.revokeObjectURL(url), 1000);
-    showToast('Backup diunduh.');
+    hasUnsavedChanges = false;
+    updateUnsavedBanner();
+    showToast('Backup diunduh — data kamu sekarang aman.');
   }catch(e){ showToast('Gagal ekspor: '+e.message, true); }
 }
 function importData(file){
@@ -7714,6 +7777,8 @@ function importData(file){
       });
       STATE = parsed;
       await afterMutate();
+      hasUnsavedChanges = false;
+      updateUnsavedBanner();
       showToast('Data berhasil diimpor.');
     }catch(err){ showToast('Gagal impor: '+err.message, true); }
   };
@@ -7723,6 +7788,8 @@ async function resetData(){
   if(!confirm('Reset ke data awal dari file Excel? Semua perubahan yang belum diekspor akan hilang.')) return;
   STATE = seedFromRaw();
   await afterMutate();
+  hasUnsavedChanges = false;
+  updateUnsavedBanner();
   showToast('Data direset ke kondisi awal.');
 }
 
@@ -7781,16 +7848,6 @@ document.addEventListener('click', (e)=>{
   const picSendBtn = e.target.closest('[data-pic-send]');
   if(picSendBtn){
     openPicMessageModal(picSendBtn.dataset.bidang, picSendBtn.dataset.id, picSendBtn.dataset.picType);
-    return;
-  }
-  const outerDownloadBtn = e.target.closest('[data-outer-download]');
-  if(outerDownloadBtn){
-    e.stopPropagation();
-    const card = outerDownloadBtn.closest('[data-company]');
-    const companyName = card ? card.dataset.company : null;
-    const detail = companyName && STATE.__companies ? STATE.__companies[companyName] : null;
-    const f = detail && detail.files ? detail.files.find(x=>x.id===outerDownloadBtn.dataset.outerDownload) : null;
-    if(f) openDataUrl(f.fileData, f.fileType);
     return;
   }
   const companyCard = e.target.closest('[data-company]');
