@@ -6364,22 +6364,24 @@ async function loadState(){
 }
 async function saveState(){
   if(isApplyingRemoteUpdate) return; // jangan nulis balik pas lagi nerapin update dari device lain
-  let cloudOk = false;
+  let cloudOk = false, cloudErr = null;
   try{
     if(fbDb && fbAuth && fbAuth.currentUser){
       await fbDb.collection('dashboard').doc('state').set(STATE);
       cloudOk = true;
+    } else if(fbDb){
+      cloudErr = 'belum login (sesi terputus)';
     }
-  }catch(e){ console.warn('Gagal sinkron ke cloud:', e); }
+  }catch(e){ cloudErr = e.code || e.message || String(e); console.warn('Gagal sinkron ke cloud:', e); }
 
-  let localOk = false;
+  let localOk = false, localErr = null;
   try{
     if(window.storage){ await window.storage.set(STORAGE_KEY, JSON.stringify(STATE), false); localOk = true; }
-  }catch(e){ console.warn('window.storage tidak tersedia:', e); }
+  }catch(e){ localErr = e.message || String(e); console.warn('window.storage tidak tersedia:', e); }
   try{
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE));
     localOk = true;
-  }catch(e){ console.warn('Gagal simpan ke localStorage:', e); }
+  }catch(e){ localErr = e.message || String(e); console.warn('Gagal simpan ke localStorage:', e); }
 
   if(cloudOk){
     hasUnsavedChanges = false;
@@ -6387,11 +6389,12 @@ async function saveState(){
     updateSyncStatus('online');
   } else if(localOk){
     hasUnsavedChanges = !!fbDb;
-    flashSaveIndicator(fbDb ? 'Tersimpan lokal — belum sinkron ke tim (cek internet)' : 'Tersimpan otomatis di browser ini', !!fbDb);
+    flashSaveIndicator(fbDb ? ('Tersimpan lokal — belum sinkron ke tim (' + (cloudErr||'cek internet') + ')') : 'Tersimpan otomatis di browser ini', !!fbDb);
     if(fbDb) updateSyncStatus('offline');
   } else {
     hasUnsavedChanges = true;
-    flashSaveIndicator('Auto-save tidak tersedia di browser ini — pakai "Ekspor Data" untuk backup', true);
+    const detail = cloudErr ? ('cloud: ' + cloudErr) : (localErr ? ('lokal: ' + localErr) : 'penyebab tidak diketahui');
+    flashSaveIndicator('Auto-save gagal (' + detail + ') — pakai "Ekspor Data" untuk backup', true);
   }
   updateUnsavedBanner();
 }
