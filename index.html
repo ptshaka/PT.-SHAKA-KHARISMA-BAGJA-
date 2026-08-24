@@ -7891,6 +7891,33 @@ function fmtBytes(n){
   if(n < 1024*1024) return (n/1024).toFixed(0) + ' KB';
   return (n/1024/1024).toFixed(1) + ' MB';
 }
+/* ================= Penyimpanan berkas terpisah (biar dokumen utama tetap kecil di Firestore) ================= */
+function newFileRef(){ return 'f' + Date.now() + '_' + Math.random().toString(36).slice(2,8); }
+async function saveFileToCloud(fileRef, dataUrl){
+  if(!fbDb || !fbAuth || !fbAuth.currentUser) return false;
+  try{
+    await fbDb.collection('dashboard_files').doc(fileRef).set({ data: dataUrl });
+    return true;
+  }catch(e){ console.warn('Gagal upload berkas ke cloud:', e); return false; }
+}
+async function loadFileFromCloud(fileRef){
+  if(!fbDb) return null;
+  try{
+    const snap = await fbDb.collection('dashboard_files').doc(fileRef).get();
+    return snap.exists ? snap.data().data : null;
+  }catch(e){ console.warn('Gagal ambil berkas dari cloud:', e); return null; }
+}
+async function resolveFileData(fileObj){
+  // fileObj bisa punya fileData langsung (tersimpan lokal) atau fileRef (tersimpan di cloud terpisah)
+  if(fileObj.fileData) return fileObj.fileData;
+  if(fileObj.fileRef){
+    showToast('Mengambil berkas dari cloud…');
+    const data = await loadFileFromCloud(fileObj.fileRef);
+    if(!data) showToast('Gagal mengambil berkas — cek koneksi internet.', true);
+    return data;
+  }
+  return null;
+}
 function openDataUrl(dataUrl, fallbackType){
   try{
     const arr = dataUrl.split(',');
@@ -7905,6 +7932,10 @@ function openDataUrl(dataUrl, fallbackType){
     window.open(url, '_blank');
     setTimeout(()=> URL.revokeObjectURL(url), 60000);
   }catch(e){ showToast('Gagal membuka berkas: '+e.message, true); }
+}
+async function openStoredFile(fileObj){
+  const data = await resolveFileData(fileObj);
+  if(data) openDataUrl(data, fileObj.fileType);
 }
 
 const PIC_PROMPTS = {
@@ -8025,12 +8056,14 @@ function openDocModal(bidang, id, field, fieldLabel){
   const current = job[field];
   const currentObj = (current && typeof current==='object') ? current : null;
   const currentLabel = currentObj ? (currentObj.label||'') : (current||'');
-  let workingFile = (currentObj && currentObj.fileData) ? {fileName: currentObj.fileName, fileType: currentObj.fileType, fileData: currentObj.fileData} : null;
+  let workingFile = currentObj && (currentObj.fileData || currentObj.fileRef)
+    ? {fileName: currentObj.fileName, fileType: currentObj.fileType, fileData: currentObj.fileData||null, fileRef: currentObj.fileRef||null}
+    : null;
   let fileCleared = false;
 
   function fileInfoHTML(){
     if(!workingFile) return `<div style="color:var(--muted);font-size:12px;">Belum ada berkas terlampir.</div>`;
-    return `<div style="font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📎 ${esc(workingFile.fileName)}
+    return `<div style="font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📎 ${esc(workingFile.fileName)}${workingFile.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}
       <a href="#" id="doc-view-link" class="btn btn-sm">Lihat / Unduh</a>
       <button type="button" class="btn btn-sm btn-danger" id="doc-remove-file">Hapus berkas</button>
     </div>`;
@@ -8039,8 +8072,8 @@ function openDocModal(bidang, id, field, fieldLabel){
   const bodyHTML = `
     <div class="field"><label>Keterangan / Nama Dokumen</label><input type="text" id="doc-label-input" value="${esc(currentLabel)}" placeholder="mis. KAK Geoteknik, No. Kontrak, dst"></div>
     <div class="field"><label>Berkas Terlampir</label><div id="doc-file-info">${fileInfoHTML()}</div></div>
-    <div class="field"><label>Upload Berkas Baru (opsional — PDF/JPG/PNG/Word/Excel, disarankan &lt; 2 MB)</label><input type="file" id="doc-file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"></div>
-    <div class="note-box" style="margin-top:4px;">Berkas disimpan langsung di dalam data dashboard ini (bukan diupload ke server). Untuk file besar / banyak lampiran, andalkan tombol <b>Ekspor Data (.json)</b> secara rutin sebagai backup — jangan cuma mengandalkan auto-save.</div>
+    <div class="field"><label>Upload Berkas Baru (opsional — PDF/JPG/PNG/Word/Excel)</label><input type="file" id="doc-file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"></div>
+    <div class="note-box" style="margin-top:4px;" id="doc-upload-note">${fbDb ? 'Berkas otomatis kesimpen terpisah di cloud (nggak numpang di data utama), jadi ukurannya nggak bakal bikin sinkron gagal.' : 'Berkas disimpan langsung di dalam data dashboard ini (mode lokal, belum sinkron cloud). Untuk file besar, andalkan tombol <b>Ekspor Data (.json)</b> sebagai backup.'}</div>
   `;
 
   const modal = showModal({
@@ -8051,7 +8084,15 @@ function openDocModal(bidang, id, field, fieldLabel){
       const label = modal.querySelector('#doc-label-input').value.trim();
       const finalFile = fileCleared ? null : workingFile;
       if(!label && !finalFile){ job[field] = null; }
-      else if(finalFile){ job[field] = {label: label || null, fileName: finalFile.fileName, fileType: finalFile.fileType, fileData: finalFile.fileData}; }
+      else if(finalFile){
+        job[field] = {
+          label: label || null,
+          fileName: finalFile.fileName,
+          fileType: finalFile.fileType,
+          fileData: finalFile.fileData || null,
+          fileRef: finalFile.fileRef || null,
+        };
+      }
       else { job[field] = label; }
       await afterMutate();
       showToast('Dokumen diperbarui.');
@@ -8061,7 +8102,7 @@ function openDocModal(bidang, id, field, fieldLabel){
 
   function wireFileInfoLinks(){
     const viewLink = modal.querySelector('#doc-view-link');
-    if(viewLink) viewLink.addEventListener('click', (e)=>{ e.preventDefault(); openDataUrl(workingFile.fileData, workingFile.fileType); });
+    if(viewLink) viewLink.addEventListener('click', (e)=>{ e.preventDefault(); openStoredFile(workingFile); });
     const rmBtn = modal.querySelector('#doc-remove-file');
     if(rmBtn) rmBtn.addEventListener('click', ()=>{ fileCleared = true; workingFile = null; modal.querySelector('#doc-file-info').innerHTML = fileInfoHTML(); });
   }
@@ -8071,15 +8112,23 @@ function openDocModal(bidang, id, field, fieldLabel){
   fileInput.addEventListener('change', async ()=>{
     const f = fileInput.files[0];
     if(!f) return;
-    if(f.size > 2*1024*1024){
-      if(!confirm(`Berkas "${f.name}" (${fmtBytes(f.size)}) cukup besar dan akan membuat data dashboard jadi berat. Lanjutkan tetap melampirkan?`)){
+    if(!fbDb && f.size > 2*1024*1024){
+      if(!confirm(`Berkas "${f.name}" (${fmtBytes(f.size)}) cukup besar dan mode lokal (belum ada sinkron cloud). Lanjutkan tetap melampirkan?`)){
         fileInput.value = '';
         return;
       }
     }
     try{
       const dataUrl = await readFileAsDataURL(f);
-      workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: dataUrl};
+      if(fbDb && fbAuth && fbAuth.currentUser){
+        const fileRef = newFileRef();
+        showToast('Mengupload berkas ke cloud…');
+        const ok = await saveFileToCloud(fileRef, dataUrl);
+        if(ok){ workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: null, fileRef}; showToast('Berkas berhasil diupload ke cloud.'); }
+        else { workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: dataUrl, fileRef: null}; showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true); }
+      } else {
+        workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: dataUrl, fileRef: null};
+      }
       fileCleared = false;
       modal.querySelector('#doc-file-info').innerHTML = fileInfoHTML();
       wireFileInfoLinks();
@@ -8122,7 +8171,7 @@ function sbuListHTML(rec){
 
 function companyFileRowHTML(f){
   return `<div class="cfile-row" data-file-id="${esc(f.id)}">
-    <div class="cfile-name">📎 ${esc(f.fileName)}<span class="cfile-meta">${fmtBytes(f.fileSize||0)}${f.uploadedAt? ' · '+fmtDate(f.uploadedAt):''}</span></div>
+    <div class="cfile-name">📎 ${esc(f.fileName)}${f.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}<span class="cfile-meta">${fmtBytes(f.fileSize||0)}${f.uploadedAt? ' · '+fmtDate(f.uploadedAt):''}</span></div>
     <div class="cfile-actions">
       <button type="button" class="btn btn-sm" data-view-cfile="${esc(f.id)}">Lihat / Unduh</button>
       <button type="button" class="btn btn-sm btn-danger" data-del-cfile="${esc(f.id)}">Hapus</button>
@@ -8169,10 +8218,10 @@ function openCompanyModal(name){
     <div class="fieldset-title">Dokumen Perusahaan</div>
     <div id="company-file-list">${companyFileListHTML(rec)}</div>
     <div class="field company-file-input">
-      <label>Upload Dokumen (opsional — PDF/JPG/PNG/Word/Excel, disarankan &lt; 2 MB)</label>
+      <label>Upload Dokumen (opsional — PDF/JPG/PNG/Word/Excel)</label>
       <input type="file" id="company-file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx">
     </div>
-    <div class="note-box" style="margin-top:4px;">Dokumen disimpan langsung di dalam data dashboard ini. Gunakan <b>Ekspor Data (.json)</b> secara rutin sebagai backup.</div>
+    <div class="note-box" style="margin-top:4px;">${fbDb ? 'Berkas otomatis kesimpen terpisah di cloud (nggak numpang di data utama), jadi ukurannya nggak bakal bikin sinkron gagal.' : 'Berkas disimpan langsung di dalam data dashboard ini (mode lokal). Gunakan <b>Ekspor Data (.json)</b> secara rutin sebagai backup.'}</div>
   `;
 
   const modal = showModal({
@@ -8219,7 +8268,7 @@ function openCompanyModal(name){
     const viewBtn = e.target.closest('[data-view-cfile]');
     if(viewBtn){
       const f = rec.files.find(x=>x.id===viewBtn.dataset.viewCfile);
-      if(f) openDataUrl(f.fileData, f.fileType);
+      if(f) openStoredFile(f);
       return;
     }
     const delBtn = e.target.closest('[data-del-cfile]');
@@ -8236,19 +8285,29 @@ function openCompanyModal(name){
   fileInput.addEventListener('change', async ()=>{
     const f = fileInput.files[0];
     if(!f) return;
-    if(f.size > 2*1024*1024){
-      if(!confirm(`Berkas "${f.name}" (${fmtBytes(f.size)}) cukup besar dan akan membuat data dashboard jadi berat. Lanjutkan tetap melampirkan?`)){
+    if(!fbDb && f.size > 2*1024*1024){
+      if(!confirm(`Berkas "${f.name}" (${fmtBytes(f.size)}) cukup besar dan mode lokal (belum ada sinkron cloud). Lanjutkan tetap melampirkan?`)){
         fileInput.value = '';
         return;
       }
     }
     try{
       const dataUrl = await readFileAsDataURL(f);
-      rec.files.push({
+      const newFile = {
         id: 'cf' + Date.now().toString(36) + Math.random().toString(36).slice(2,7),
         fileName: f.name, fileType: f.type || 'application/octet-stream', fileSize: f.size,
-        uploadedAt: new Date().toISOString(), fileData: dataUrl
-      });
+        uploadedAt: new Date().toISOString(), fileData: null, fileRef: null,
+      };
+      if(fbDb && fbAuth && fbAuth.currentUser){
+        showToast('Mengupload berkas ke cloud…');
+        const fileRef = newFileRef();
+        const ok = await saveFileToCloud(fileRef, dataUrl);
+        if(ok){ newFile.fileRef = fileRef; showToast('Berkas berhasil diupload ke cloud.'); }
+        else { newFile.fileData = dataUrl; showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true); }
+      } else {
+        newFile.fileData = dataUrl;
+      }
+      rec.files.push(newFile);
       await saveState();
       refreshFileList();
       fileInput.value = '';
