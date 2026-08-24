@@ -701,16 +701,16 @@ table.jakon td.actions{ white-space:nowrap; }
     <div class="tabbar" id="tabbar"></div>
     <div class="toolbar">
       <div class="search"><input type="text" id="search" placeholder="Cari nama pekerjaan, perusahaan, atau personil…"></div>
-      <button type="button" class="btn btn-primary" id="add-job-btn">+ Tambah Pekerjaan</button>
+      <button type="button" class="btn btn-primary" id="add-job-btn" data-min-role="editor">+ Tambah Pekerjaan</button>
       <div class="result-count" id="result-count"></div>
     </div>
     <div class="data-ops">
       <button type="button" class="btn btn-sm" id="print-report-btn">🖨 Cetak / Export PDF</button>
       <button type="button" class="btn btn-sm" id="export-personil-btn">⭳ Unduh Personil (.csv)</button>
       <button type="button" class="btn btn-sm" id="export-btn">⭳ Ekspor Data (.json)</button>
-      <button type="button" class="btn btn-sm" id="import-btn">⭱ Impor Data (.json)</button>
+      <button type="button" class="btn btn-sm" id="import-btn" data-min-role="admin">⭱ Impor Data (.json)</button>
       <input type="file" id="import-file" accept="application/json" style="display:none;">
-      <button type="button" class="btn btn-sm btn-ghost" id="reset-btn">↺ Reset ke Data Awal</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="reset-btn" data-min-role="admin">↺ Reset ke Data Awal</button>
       <span class="result-count" id="save-indicator" style="margin-left:auto;"></span>
     </div>
 
@@ -736,11 +736,16 @@ table.jakon td.actions{ white-space:nowrap; }
     <div class="chart-card" id="umum-card"></div>
   </div>
 
+  <div id="view-akses" class="view" hidden>
+    <div class="view-title"><span class="vt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 14.5v3"/></svg></span><h2>Manajemen Akses</h2></div>
+    <div class="chart-card" id="akses-list-card"></div>
+  </div>
+
 </div>
 
 <div id="print-report" class="print-only"></div>
 
-<footer>PT. SHAKA KHARISMA BAGJA &middot; <span id="sync-status" class="sync-status"></span> &middot; <button type="button" id="logout-btn" class="logout-link">Keluar</button></footer>
+<footer>PT. SHAKA KHARISMA BAGJA &middot; <span id="role-status" class="sync-status"></span> &middot; <span id="sync-status" class="sync-status"></span> &middot; <button type="button" id="logout-btn" class="logout-link">Keluar</button></footer>
 </div>
 
 <script type="application/json" id="raw-data">{
@@ -6247,7 +6252,7 @@ let STATE = null;
 let DERIVED = {};
 
 function seedFromRaw(){
-  const s = { __meta: { idCounter: 0, adminEmails: [] }, __companies: {} };
+  const s = { __meta: { idCounter: 0, adminEmails: [], userRoles: [] }, __companies: {} };
   BIDANG_ORDER.forEach(b=>{
     s[b] = (RAW[b]||[]).map(job=>{
       const clone = JSON.parse(JSON.stringify(job));
@@ -6308,6 +6313,7 @@ function setupFirestoreSync(){
     isApplyingRemoteUpdate = true;
     STATE = remote;
     normalizeState();
+    await computeCurrentRole();
     renderAll();
     isApplyingRemoteUpdate = false;
     updateSyncStatus('online');
@@ -6347,6 +6353,50 @@ async function doLogin(){
 async function doLogout(){
   if(!confirm('Keluar dari dashboard?')) return;
   try{ if(fbUnsubscribe){ fbUnsubscribe(); fbUnsubscribe=null; } await fbAuth.signOut(); }catch(e){ console.warn(e); }
+}
+
+/* ================= Role & hak akses ================= */
+const ROLE_RANK = { viewer: 0, editor: 1, admin: 2 };
+const ROLE_LABEL = { viewer: 'Viewer (lihat saja)', editor: 'Editor (isi data)', admin: 'Admin (akses penuh)' };
+let CURRENT_ROLE = 'admin'; // default akses penuh kalau mode lokal tanpa login
+function roleRank(r){ return ROLE_RANK[r] ?? 0; }
+function canEdit(){ return roleRank(CURRENT_ROLE) >= ROLE_RANK.editor; }
+function canDelete(){ return roleRank(CURRENT_ROLE) >= ROLE_RANK.admin; }
+function isAdminRole(){ return CURRENT_ROLE === 'admin'; }
+function findRoleEntry(email){
+  if(!email) return null;
+  const list = (STATE && STATE.__meta && STATE.__meta.userRoles) || [];
+  const target = email.trim().toLowerCase();
+  return list.find(r=> r && r.email && r.email.trim().toLowerCase()===target) || null;
+}
+async function computeCurrentRole(){
+  if(!fbDb || !fbAuth || !fbAuth.currentUser){ CURRENT_ROLE = 'admin'; return; } // mode lokal tanpa login: akses penuh
+  if(!STATE.__meta) STATE.__meta = {idCounter:0};
+  if(!Array.isArray(STATE.__meta.userRoles)) STATE.__meta.userRoles = [];
+  const email = fbAuth.currentUser.email;
+  const entry = findRoleEntry(email);
+  if(entry){ CURRENT_ROLE = ROLE_RANK[entry.role]!==undefined ? entry.role : 'viewer'; return; }
+  if(STATE.__meta.userRoles.length===0){
+    // belum ada siapa pun di daftar akses — orang pertama yang login otomatis jadi admin
+    STATE.__meta.userRoles.push({email, nama:null, role:'admin'});
+    CURRENT_ROLE = 'admin';
+    try{ await saveState(); }catch(e){ console.warn(e); }
+    setTimeout(()=> showToast('Kamu otomatis jadi Admin pertama dashboard ini.'), 300);
+    return;
+  }
+  CURRENT_ROLE = 'viewer';
+  setTimeout(()=> showToast('Akun kamu belum diatur aksesnya oleh Admin — sementara mode lihat-saja.', true), 300);
+}
+function applyRoleUI(){
+  document.querySelectorAll('[data-min-role]').forEach(el=>{
+    const need = ROLE_RANK[el.getAttribute('data-min-role')] ?? 0;
+    el.style.display = (roleRank(CURRENT_ROLE) >= need) ? '' : 'none';
+  });
+  const roleEl = document.getElementById('role-status');
+  if(roleEl){
+    const emailPart = (fbAuth && fbAuth.currentUser && fbAuth.currentUser.email) ? ` (${fbAuth.currentUser.email})` : '';
+    roleEl.textContent = 'Akses: ' + (ROLE_LABEL[CURRENT_ROLE]||CURRENT_ROLE) + emailPart;
+  }
 }
 
 async function loadState(){
@@ -6436,6 +6486,8 @@ async function afterMutate(){
   renderPerusahaanView();
   renderEmailView();
   renderUmumView();
+  renderAksesView();
+  applyRoleUI();
 }
 
 /* ================= Derived aggregates ================= */
@@ -6495,6 +6547,7 @@ const ICON_LIST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>';
 const ICON_HANDSHAKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12l4-4 5 4-2 2 3 3 2-2 3 3-2 2"/><path d="M22 12l-4-4-3 3"/></svg>';
 const ICON_SETTINGS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.5 7.5 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.5 7.5 0 0 0-1.7 1l-2.3-.9-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9c.5.4 1.1.8 1.7 1L11 20.5h4l.4-2.5c.6-.2 1.2-.6 1.7-1l2.3.9 2-3.4-2-1.5z"/></svg>';
+const ICON_LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 14.5v3"/></svg>';
 
 function renderKPIs(){
   const el = document.getElementById('kpis');
@@ -6953,7 +7006,7 @@ function renderReminders(){
     <div class="data-ops" style="margin-top:16px;">
       <button type="button" class="btn btn-sm btn-primary" id="send-reminder-btn">✉ Kirim Semua Sekaligus (Email)</button>
       ${waContacts.map((c,i)=>`<button type="button" class="btn btn-sm" data-send-all-wa="${i}">💬 WA ke ${esc(c.nama||c.whatsapp)}</button>`).join('')}
-      <button type="button" class="btn btn-sm btn-ghost" id="set-admin-email-btn">⚙ Daftar Email Admin (${adminEmails.length})</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="set-admin-email-btn" data-min-role="admin">⚙ Daftar Email Admin (${adminEmails.length})</button>
     </div>
   `;
   document.getElementById('send-reminder-btn').addEventListener('click', sendReminderEmail);
@@ -7147,6 +7200,7 @@ function renderUmumView(){
   document.getElementById('test-umum-btn').addEventListener('click', sendTestEmail);
 }
 async function saveUmumSettings(){
+  if(!canDelete()){ showToast('Cuma Admin yang bisa mengubah pengaturan ini.', true); return; }
   const publicKey = document.getElementById('umum-publickey').value.trim();
   const serviceId = document.getElementById('umum-serviceid').value.trim();
   const templateId = document.getElementById('umum-templateid').value.trim();
@@ -7156,6 +7210,7 @@ async function saveUmumSettings(){
   showToast('Pengaturan EmailJS disimpan.');
 }
 async function sendTestEmail(){
+  if(!canDelete()){ showToast('Cuma Admin yang bisa mengakses pengaturan ini.', true); return; }
   const to = getAdminEmailAddresses()[0];
   if(!to){ showToast('Isi dulu minimal 1 email di menu "Daftar Email" untuk tes kirim.', true); return; }
   const result = await sendEmailUniversal(to, 'Tes Email — Dashboard Pekerjaan', 'Ini email percobaan dari Dashboard Pencatatan Pekerjaan PT. Shaka Kharisma Bagja. Kalau kamu terima ini, integrasi EmailJS-nya berhasil.');
@@ -7204,6 +7259,7 @@ function handleEmailListClick(e){
   }
 }
 async function saveEmailListFromPage(){
+  if(!canDelete()){ showToast('Cuma Admin yang bisa mengubah daftar kontak.', true); return; }
   const box = document.getElementById('email-list-card');
   const rows = box.querySelectorAll('#email-editor-page .prow');
   const raw = [...rows].map(row=>({
@@ -7222,6 +7278,78 @@ async function saveEmailListFromPage(){
   STATE.__meta.adminEmails = unique;
   await afterMutate();
   showToast(invalidEmails.length ? `Disimpan. Format email tidak valid dilewati: ${invalidEmails.join(', ')}` : 'Daftar kontak admin disimpan.', !!invalidEmails.length);
+}
+function roleRowHTML(entry, idx){
+  entry = entry || {};
+  const role = entry.role || 'viewer';
+  return `<div class="prow" data-rrow="${idx}">
+    <button type="button" class="prow-remove" data-remove-rrow title="Hapus akun ini">&times;</button>
+    <input data-r="nama" value="${esc(entry.nama||'')}" placeholder="Nama (opsional)">
+    <input data-r="email" type="email" value="${esc(entry.email||'')}" placeholder="Email login akun tim — nama@perusahaan.com" class="full">
+    <select data-r="role">
+      <option value="viewer" ${role==='viewer'?'selected':''}>Viewer — cuma lihat/download</option>
+      <option value="editor" ${role==='editor'?'selected':''}>Editor — isi &amp; upload data, ga bisa hapus</option>
+      <option value="admin" ${role==='admin'?'selected':''}>Admin — akses penuh (termasuk hapus)</option>
+    </select>
+  </div>`;
+}
+function renderAksesView(){
+  const box = document.getElementById('akses-list-card');
+  if(!box) return;
+  const roles = ((STATE.__meta && STATE.__meta.userRoles) || []);
+  box.innerHTML = `
+    <p style="font-size:12.5px;color:var(--muted);margin:0 0 14px;">Atur level akses tiap akun tim di sini — <b>email di bawah harus sama persis dengan email yang dipakai buat login</b> di layar Masuk. Akun yang belum terdaftar di sini otomatis kebagian akses <b>Viewer</b> (lihat-saja) begitu mereka login.</p>
+    <div class="personil-editor" id="akses-editor-page">
+      ${roles.length ? roles.map((r,i)=>roleRowHTML(r,i)).join('') : roleRowHTML({}, 0)}
+    </div>
+    <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
+      <button type="button" class="btn btn-sm btn-ghost" id="add-akses-row-page">+ Tambah Akun</button>
+      <button type="button" class="btn btn-sm btn-primary" id="save-akses-list-btn" style="margin-left:auto;">Simpan Daftar Akses</button>
+    </div>
+  `;
+}
+function handleAksesListClick(e){
+  const box = document.getElementById('akses-list-card');
+  if(!box) return;
+  if(e.target.closest('#add-akses-row-page')){
+    const container = box.querySelector('#akses-editor-page');
+    const idx = container.querySelectorAll('.prow').length;
+    container.insertAdjacentHTML('beforeend', roleRowHTML({}, idx));
+    return;
+  }
+  const rm = e.target.closest('[data-remove-rrow]');
+  if(rm){ rm.closest('.prow').remove(); return; }
+  if(e.target.closest('#save-akses-list-btn')){
+    saveAksesListFromPage();
+    return;
+  }
+}
+async function saveAksesListFromPage(){
+  if(!canDelete()){ showToast('Cuma Admin yang bisa mengubah daftar akses.', true); return; }
+  const box = document.getElementById('akses-list-card');
+  const rows = box.querySelectorAll('#akses-editor-page .prow');
+  const raw = [...rows].map(row=>({
+    nama: row.querySelector('[data-r="nama"]').value.trim() || null,
+    email: row.querySelector('[data-r="email"]').value.trim(),
+    role: row.querySelector('[data-r="role"]').value,
+  })).filter(r=> r.email);
+  const valid = [], invalidEmails = [];
+  raw.forEach(r=>{
+    if(!/^\S+@\S+\.\S+$/.test(r.email)){ invalidEmails.push(r.email); return; }
+    valid.push(r);
+  });
+  const myEmail = (fbAuth && fbAuth.currentUser && fbAuth.currentUser.email || '').trim().toLowerCase();
+  if(myEmail && !valid.some(r=> r.email.trim().toLowerCase()===myEmail && r.role==='admin')){
+    if(!confirm('Kamu mau menyimpan daftar akses tanpa akunmu sendiri sebagai Admin. Kamu bisa kehilangan akses Admin setelah ini. Lanjutkan?')) return;
+  }
+  const seen = new Set(); const unique = [];
+  valid.forEach(r=>{ const key = r.email.trim().toLowerCase(); if(!seen.has(key)){ seen.add(key); unique.push(r); } });
+  if(!STATE.__meta) STATE.__meta = {idCounter:0};
+  STATE.__meta.userRoles = unique;
+  await afterMutate();
+  await computeCurrentRole();
+  renderAll();
+  showToast(invalidEmails.length ? `Disimpan. Format email tidak valid dilewati: ${invalidEmails.join(', ')}` : 'Daftar akses tim disimpan.', !!invalidEmails.length);
 }
 function buildBulkReminderMessage(list){
   const lines = list.map(({job:j, alerts})=>{
@@ -7260,12 +7388,15 @@ const MAIN_NAV = [
   {key:'PENGINGAT', label:'Pengingat', icon: ICON_BELL},
   {key:'DAFTAR', label:'Daftar Pekerjaan', icon: ICON_LIST},
   {key:'PERUSAHAAN', label:'Mitra Perusahaan', icon: ICON_HANDSHAKE},
-  {key:'EMAIL', label:'Daftar Email', icon: ICON_MAIL},
-  {key:'UMUM', label:'Data Umum', icon: ICON_SETTINGS},
+  {key:'EMAIL', label:'Daftar Email', icon: ICON_MAIL, minRole:'admin'},
+  {key:'UMUM', label:'Data Umum', icon: ICON_SETTINGS, minRole:'admin'},
+  {key:'AKSES', label:'Manajemen Akses', icon: ICON_LOCK, minRole:'admin'},
 ];
 function renderMainNav(){
   const reminderCount = getReminderList().length;
-  document.getElementById('main-nav').innerHTML = MAIN_NAV.map(v=>`
+  const visibleNav = MAIN_NAV.filter(v=> roleRank(CURRENT_ROLE) >= ROLE_RANK[v.minRole||'viewer']);
+  if(!visibleNav.some(v=>v.key===activeView)) activeView = 'RINGKASAN';
+  document.getElementById('main-nav').innerHTML = visibleNav.map(v=>`
     <button class="main-nav-btn ${activeView===v.key?'active':''}" data-view="${v.key}">
       ${v.icon}
       ${esc(v.label)}
@@ -7282,6 +7413,7 @@ function showView(){
   document.getElementById('view-perusahaan').hidden = activeView!=='PERUSAHAAN';
   document.getElementById('view-email').hidden = activeView!=='EMAIL';
   document.getElementById('view-umum').hidden = activeView!=='UMUM';
+  document.getElementById('view-akses').hidden = activeView!=='AKSES';
 }
 
 /* ================= Tabs ================= */
@@ -7308,7 +7440,7 @@ function renderTabs(){
       ${esc(t.label)} <span class="count">${tabCount(t.key)}</span>
     </button>`).join('');
   document.querySelectorAll('.tab-btn').forEach(btn=>{
-    btn.addEventListener('click', ()=>{ activeTab = btn.dataset.tab; renderTabs(); renderContent(); updatePersonilExportBtn(); });
+    btn.addEventListener('click', ()=>{ activeTab = btn.dataset.tab; renderTabs(); renderContent(); updatePersonilExportBtn(); applyRoleUI(); });
   });
   updatePersonilExportBtn();
 }
@@ -7358,8 +7490,8 @@ function renderJobCard(j){
     </summary>
     <div class="job-body">
       <div class="job-actions">
-        <button type="button" class="btn btn-sm" data-edit-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}">✎ Edit Pekerjaan</button>
-        <button type="button" class="btn btn-sm btn-danger" data-del-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}">🗑 Hapus</button>
+        <button type="button" class="btn btn-sm" data-edit-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-min-role="editor">✎ Edit Pekerjaan</button>
+        <button type="button" class="btn btn-sm btn-danger" data-del-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-min-role="admin">🗑 Hapus</button>
       </div>
       <div class="grid-2">
         <div class="info-block">
@@ -7464,8 +7596,8 @@ function renderJakonCard(j){
     </summary>
     <div class="job-body">
       <div class="job-actions">
-        <button type="button" class="btn btn-sm" data-edit-job data-bidang="JAKON" data-id="${esc(j._id)}">✎ Edit Kegiatan</button>
-        <button type="button" class="btn btn-sm btn-danger" data-del-job data-bidang="JAKON" data-id="${esc(j._id)}">🗑 Hapus</button>
+        <button type="button" class="btn btn-sm" data-edit-job data-bidang="JAKON" data-id="${esc(j._id)}" data-min-role="editor">✎ Edit Kegiatan</button>
+        <button type="button" class="btn btn-sm btn-danger" data-del-job data-bidang="JAKON" data-id="${esc(j._id)}" data-min-role="admin">🗑 Hapus</button>
       </div>
       <div class="grid-2">
         <div class="info-block">
@@ -7734,10 +7866,17 @@ function buildGroupsHTML(groups, data){
     </div>`).join('');
 }
 
-function showModal({title, bodyHTML, onSubmit, submitLabel}){
+function showModal({title, bodyHTML, onSubmit, submitLabel, viewOnly}){
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
-  backdrop.innerHTML = `
+  backdrop.innerHTML = viewOnly ? `
+    <div class="modal">
+      <div class="modal-header"><h3>${esc(title)}</h3><button type="button" class="modal-close" aria-label="Tutup">&times;</button></div>
+      <div class="modal-body">${bodyHTML}</div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="modal-cancel">Tutup</button>
+      </div>
+    </div>` : `
     <div class="modal">
       <div class="modal-header"><h3>${esc(title)}</h3><button type="button" class="modal-close" aria-label="Tutup">&times;</button></div>
       <form id="modal-form" novalidate>
@@ -7753,6 +7892,7 @@ function showModal({title, bodyHTML, onSubmit, submitLabel}){
   backdrop.querySelector('.modal-close').addEventListener('click', close);
   backdrop.querySelector('#modal-cancel').addEventListener('click', close);
   backdrop.addEventListener('click', e=>{ if(e.target===backdrop) close(); });
+  if(viewOnly) return backdrop;
   const form = backdrop.querySelector('#modal-form');
   form.addEventListener('click', e=>{
     if(e.target.closest('#add-personil-row')){
@@ -7813,6 +7953,7 @@ function nextJobNumber(bidang){
   return max + 1;
 }
 function addOrEditStandardJob(bidang, job){
+  if(!canEdit()){ showToast('Kamu cuma punya akses lihat-saja (Viewer) — hubungi Admin untuk isi/edit data.', true); return; }
   const isNew = !job;
   const data = job || {};
   const bodyHTML = buildGroupsHTML(STANDARD_FIELD_GROUPS, data) + DOC_NOTE_HTML + personilEditorHTML(data.personil);
@@ -7841,6 +7982,7 @@ function addOrEditStandardJob(bidang, job){
 }
 
 function addOrEditJakon(job){
+  if(!canEdit()){ showToast('Kamu cuma punya akses lihat-saja (Viewer) — hubungi Admin untuk isi/edit data.', true); return; }
   const isNew = !job;
   const data = job || {};
   const bodyHTML = buildGroupsHTML(JAKON_FIELD_GROUPS, data);
@@ -7871,6 +8013,7 @@ function findJob(bidang, id){
   return (STATE[bidang]||[]).find(j=>j._id===id);
 }
 function deleteJob(bidang, id){
+  if(!canDelete()){ showToast('Cuma Admin yang bisa menghapus pekerjaan.', true); return; }
   const job = findJob(bidang, id);
   const label = job ? (job.nama_pekerjaan||'pekerjaan ini') : 'pekerjaan ini';
   if(!confirm(`Hapus "${label}"? Tindakan ini tidak bisa dibatalkan.`)) return;
@@ -8061,11 +8204,26 @@ function openDocModal(bidang, id, field, fieldLabel){
     : null;
   let fileCleared = false;
 
+  if(!canEdit()){
+    // Viewer: mode lihat/unduh saja, ga ada input yang bisa diubah
+    const bodyHTML = `
+      <div class="field"><label>Keterangan / Nama Dokumen</label><div style="font-size:13.5px;padding:4px 0;">${currentLabel ? esc(currentLabel) : '<span style="color:var(--muted);">(belum diisi)</span>'}</div></div>
+      <div class="field"><label>Berkas Terlampir</label>
+        ${workingFile ? `<div style="font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📎 ${esc(workingFile.fileName)}${workingFile.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}
+          <a href="#" id="doc-view-link" class="btn btn-sm">Lihat / Unduh</a></div>` : `<div style="color:var(--muted);font-size:12px;">Belum ada berkas terlampir.</div>`}
+      </div>
+    `;
+    const modal = showModal({ title: `Dokumen: ${fieldLabel}`, bodyHTML, viewOnly: true });
+    const viewLink = modal.querySelector('#doc-view-link');
+    if(viewLink) viewLink.addEventListener('click', (e)=>{ e.preventDefault(); openStoredFile(workingFile); });
+    return;
+  }
+
   function fileInfoHTML(){
     if(!workingFile) return `<div style="color:var(--muted);font-size:12px;">Belum ada berkas terlampir.</div>`;
     return `<div style="font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📎 ${esc(workingFile.fileName)}${workingFile.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}
       <a href="#" id="doc-view-link" class="btn btn-sm">Lihat / Unduh</a>
-      <button type="button" class="btn btn-sm btn-danger" id="doc-remove-file">Hapus berkas</button>
+      ${canDelete() ? `<button type="button" class="btn btn-sm btn-danger" id="doc-remove-file">Hapus berkas</button>` : ''}
     </div>`;
   }
 
@@ -8174,7 +8332,7 @@ function companyFileRowHTML(f){
     <div class="cfile-name">📎 ${esc(f.fileName)}${f.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}<span class="cfile-meta">${fmtBytes(f.fileSize||0)}${f.uploadedAt? ' · '+fmtDate(f.uploadedAt):''}</span></div>
     <div class="cfile-actions">
       <button type="button" class="btn btn-sm" data-view-cfile="${esc(f.id)}">Lihat / Unduh</button>
-      <button type="button" class="btn btn-sm btn-danger" data-del-cfile="${esc(f.id)}">Hapus</button>
+      ${canDelete() ? `<button type="button" class="btn btn-sm btn-danger" data-del-cfile="${esc(f.id)}">Hapus</button>` : ''}
     </div>
   </div>`;
 }
@@ -8190,6 +8348,36 @@ function openCompanyModal(name){
     {v:'hold', l:'Hold (ditahan sementara)'},
     {v:'blacklist', l:'Blacklist (jangan dipakai lagi)'},
   ];
+
+  if(!canEdit()){
+    // Viewer: mode lihat/unduh saja
+    const statusLabel = (COMPANY_STATUS.find(o=>o.v===rec.status)||{}).l || rec.status;
+    const bodyHTML = `
+      <div class="fieldset-title" style="margin-top:0; padding-top:0; border-top:none;">Status Perusahaan</div>
+      <div class="field"><label>Status</label><div style="font-size:13.5px;padding:4px 0;">${esc(statusLabel||'–')}</div></div>
+      ${rec.statusReason ? `<div class="field"><label>Alasan</label><div style="font-size:13.5px;padding:4px 0;">${esc(rec.statusReason)}</div></div>` : ''}
+
+      <div class="fieldset-title">Informasi Direktur & Perusahaan</div>
+      <div class="field-grid">
+        <div class="field"><label>Nama Direktur</label><div style="font-size:13.5px;padding:4px 0;">${rec.direktur? esc(rec.direktur):'–'}</div></div>
+        <div class="field"><label>NPWP Perusahaan</label><div style="font-size:13.5px;padding:4px 0;">${rec.npwp? esc(rec.npwp):'–'}</div></div>
+      </div>
+      <div class="field"><label>NIK Direktur</label><div style="font-size:13.5px;padding:4px 0;">${rec.nik_direktur? esc(rec.nik_direktur):'–'}</div></div>
+      <div class="field"><label>Alamat Perusahaan</label><div style="font-size:13.5px;padding:4px 0;">${rec.alamat? esc(rec.alamat):'–'}</div></div>
+
+      <div class="fieldset-title">Informasi SBU (Sertifikat Badan Usaha)</div>
+      ${rec.sbu_list.length ? rec.sbu_list.map(s=>`<div style="font-size:13.5px;padding:4px 0;">${esc(s.kode||'–')} · berakhir ${esc(s.tahun_berakhir||'–')}</div>`).join('') : `<div style="color:var(--muted); font-size:12px;">Belum ada SBU ditambahkan.</div>`}
+
+      <div class="fieldset-title">Dokumen Perusahaan</div>
+      <div id="company-file-list">${companyFileListHTML(rec)}</div>
+    `;
+    const modal = showModal({ title: `Detail Perusahaan — ${name}`, bodyHTML, viewOnly: true });
+    modal.addEventListener('click', (e)=>{
+      const viewBtn = e.target.closest('[data-view-cfile]');
+      if(viewBtn){ const f = rec.files.find(x=>x.id===viewBtn.dataset.viewCfile); if(f) openStoredFile(f); }
+    });
+    return;
+  }
 
   const bodyHTML = `
     <div class="fieldset-title" style="margin-top:0; padding-top:0; border-top:none;">Status Perusahaan</div>
@@ -8273,6 +8461,7 @@ function openCompanyModal(name){
     }
     const delBtn = e.target.closest('[data-del-cfile]');
     if(delBtn){
+      if(!canDelete()){ showToast('Cuma Admin yang bisa menghapus dokumen.', true); return; }
       if(!confirm('Hapus dokumen ini?')) return;
       rec.files = rec.files.filter(x=>x.id!==delBtn.dataset.delCfile);
       await saveState();
@@ -8317,6 +8506,7 @@ function openCompanyModal(name){
 }
 
 function handleAddClick(){
+  if(!canEdit()){ showToast('Kamu cuma punya akses lihat-saja (Viewer) — hubungi Admin untuk isi/edit data.', true); return; }
   if(activeTab==='JAKON'){ addOrEditJakon(null); return; }
   if(STANDARD_BIDANG.includes(activeTab)){ addOrEditStandardJob(activeTab, null); return; }
   showModal({
@@ -8423,6 +8613,7 @@ function exportData(){
   }catch(e){ showToast('Gagal ekspor: '+e.message, true); }
 }
 function importData(file){
+  if(!canDelete()){ showToast('Cuma Admin yang bisa impor data (tindakan ini bisa menimpa data lain).', true); return; }
   const reader = new FileReader();
   reader.onload = async (e)=>{
     try{
@@ -8452,6 +8643,7 @@ function importData(file){
   reader.readAsText(file);
 }
 async function resetData(){
+  if(!canDelete()){ showToast('Cuma Admin yang bisa mereset data.', true); return; }
   if(!confirm('Reset ke data awal dari file Excel? Semua perubahan yang belum diekspor akan hilang.')) return;
   STATE = seedFromRaw();
   await afterMutate();
@@ -8478,6 +8670,7 @@ document.getElementById('search-global').addEventListener('input', (e)=>{
 document.getElementById('search').addEventListener('input', (e)=>{
   searchTerm = e.target.value.trim();
   renderContent();
+  applyRoleUI();
 });
 document.getElementById('search-perusahaan').addEventListener('input', (e)=>{
   perusahaanSearchTerm = e.target.value.trim();
@@ -8542,6 +8735,7 @@ function normalizeState(){
   }
   STATE.__meta.adminEmails = STATE.__meta.adminEmails.map(e=> typeof e==='string' ? {nama:null, email:e} : e);
   if(!STATE.__meta.emailjs) STATE.__meta.emailjs = {publicKey:null, serviceId:null, templateId:null};
+  if(!Array.isArray(STATE.__meta.userRoles)) STATE.__meta.userRoles = [];
   BIDANG_ORDER.forEach(b=>{ if(!Array.isArray(STATE[b])) STATE[b] = []; });
 }
 function renderAll(){
@@ -8559,7 +8753,9 @@ function renderAll(){
   renderPerusahaanView();
   renderEmailView();
   renderUmumView();
+  renderAksesView();
   renderGlobalSearch();
+  applyRoleUI();
 }
 async function startApp(){
   if(appStarted) return; // hindari jalan dobel kalau onAuthStateChanged nembak lebih dari sekali
@@ -8569,9 +8765,11 @@ async function startApp(){
   try{ loaded = await loadState(); }catch(e){ console.warn(e); }
   STATE = loaded || seedFromRaw();
   normalizeState();
+  await computeCurrentRole();
   renderAll();
   showView();
   document.getElementById('email-list-card').addEventListener('click', handleEmailListClick);
+  document.getElementById('akses-list-card').addEventListener('click', handleAksesListClick);
 
   if(fbDb){ setupFirestoreSync(); } // mulai dengerin update real-time dari device lain
   else { await saveState(); }
