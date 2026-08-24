@@ -538,6 +538,15 @@ footer{
 }
 .ph-label{ font-size:10.5px; color:var(--muted); font-family:'IBM Plex Mono',monospace; margin:6px 0 2px; }
 
+.pic-assign-row{
+  border:1px solid #e1e8ec; border-radius:2px; padding:10px; margin-bottom:8px;
+  display:grid; grid-template-columns:110px 1fr; gap:10px; align-items:center;
+}
+@media (max-width:520px){ .pic-assign-row{ grid-template-columns:1fr; } }
+.pic-assign-role{ font-family:'Space Grotesk',sans-serif; font-size:12.5px; font-weight:600; color:var(--navy); }
+.pic-assign-row select{ padding:6px 8px; font-size:12px; border:1px solid #cfdae1; border-radius:2px; font-family:inherit; width:100%; }
+.pic-assign-preview{ font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; margin-top:5px; grid-column:1/-1; }
+
 /* ---------- Toast ---------- */
 .toast{
   position:fixed; bottom:20px; right:20px; background:var(--navy); color:#eaf2f8; padding:11px 18px; border-radius:3px;
@@ -732,6 +741,16 @@ table.jakon td.actions{ white-space:nowrap; }
       <div class="result-count" id="result-count-perusahaan"></div>
     </div>
     <div id="content-perusahaan"></div>
+  </div>
+
+  <div id="view-pic" class="view" hidden>
+    <div class="view-title"><span class="vt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9.5" cy="10.5" r="2.2"/><path d="M6.3 16.5c.5-1.9 1.7-2.9 3.2-2.9s2.7 1 3.2 2.9"/><path d="M15 9.5h3M15 13h3"/></svg></span><h2>PIC Pekerjaan</h2></div>
+    <div class="toolbar">
+      <div class="search"><input type="text" id="search-pic" placeholder="Cari nama PIC, email, atau pekerjaan…"></div>
+      <button type="button" class="btn btn-sm" id="add-pic-btn" data-min-role="editor">+ Tambah PIC</button>
+      <div class="result-count" id="result-count-pic"></div>
+    </div>
+    <div id="content-pic"></div>
   </div>
 
   <div id="view-email" class="view" hidden>
@@ -6260,7 +6279,7 @@ let STATE = null;
 let DERIVED = {};
 
 function seedFromRaw(){
-  const s = { __meta: { idCounter: 0, adminEmails: [], userRoles: [] }, __companies: {} };
+  const s = { __meta: { idCounter: 0, adminEmails: [], userRoles: [] }, __companies: {}, __pics: {} };
   BIDANG_ORDER.forEach(b=>{
     s[b] = (RAW[b]||[]).map(job=>{
       const clone = JSON.parse(JSON.stringify(job));
@@ -6492,6 +6511,7 @@ async function afterMutate(){
   renderTabs();
   renderContent();
   renderPerusahaanView();
+  renderPicView();
   renderEmailView();
   renderUmumView();
   renderAksesView();
@@ -6540,7 +6560,25 @@ function computeDerived(){
   const statusCounts = {selesai:0, proses:0, belum:0, unk:0};
   allJobs.forEach(j=>{ statusCounts[classifyStatus(j)]++; });
 
-  DERIVED = {allJobs, jakonJobs, totalPekerjaan, totalNilaiPagu, totalNilaiDiterima, pctDiterima, personilMap, perusahaanMap, statusCounts};
+  const picMap = new Map();
+  const ensurePic = (name)=>{
+    const key = name.trim();
+    if(!key) return null;
+    if(!picMap.has(key)) picMap.set(key, {nama:key, jobs:[]});
+    return picMap.get(key);
+  };
+  Object.keys(STATE.__pics||{}).forEach(name=> ensurePic(name));
+  allJobs.forEach(j=>{
+    PIC_ROLE_DEFS.forEach(rd=>{
+      const nama = j[rd.namaField];
+      if(!nama) return;
+      const rec = ensurePic(nama);
+      if(!rec) return;
+      rec.jobs.push({bidang:j.bidang, nama_pekerjaan:j.nama_pekerjaan, role:rd.label, jobId:j._id});
+    });
+  });
+
+  DERIVED = {allJobs, jakonJobs, totalPekerjaan, totalNilaiPagu, totalNilaiDiterima, pctDiterima, personilMap, perusahaanMap, picMap, statusCounts};
 }
 
 /* ================= KPI + chart ================= */
@@ -6556,6 +6594,7 @@ const ICON_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON_HANDSHAKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12l4-4 5 4-2 2 3 3 2-2 3 3-2 2"/><path d="M22 12l-4-4-3 3"/></svg>';
 const ICON_SETTINGS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.5 7.5 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.5 7.5 0 0 0-1.7 1l-2.3-.9-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9c.5.4 1.1.8 1.7 1L11 20.5h4l.4-2.5c.6-.2 1.2-.6 1.7-1l2.3.9 2-3.4-2-1.5z"/></svg>';
 const ICON_LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 14.5v3"/></svg>';
+const ICON_CONTACT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9.5" cy="10.5" r="2.2"/><path d="M6.3 16.5c.5-1.9 1.7-2.9 3.2-2.9s2.7 1 3.2 2.9"/><path d="M15 9.5h3M15 13h3"/></svg>';
 
 function renderKPIs(){
   const el = document.getElementById('kpis');
@@ -7396,6 +7435,7 @@ const MAIN_NAV = [
   {key:'PENGINGAT', label:'Pengingat', icon: ICON_BELL},
   {key:'DAFTAR', label:'Daftar Pekerjaan', icon: ICON_LIST},
   {key:'PERUSAHAAN', label:'Mitra Perusahaan', icon: ICON_HANDSHAKE},
+  {key:'PIC', label:'PIC Pekerjaan', icon: ICON_CONTACT},
   {key:'EMAIL', label:'Daftar Email', icon: ICON_MAIL, minRole:'admin'},
   {key:'UMUM', label:'Data Umum', icon: ICON_SETTINGS, minRole:'admin'},
   {key:'AKSES', label:'Manajemen Akses', icon: ICON_LOCK, minRole:'admin'},
@@ -7426,6 +7466,7 @@ function showView(){
   document.getElementById('view-pengingat').hidden = activeView!=='PENGINGAT';
   document.getElementById('view-daftar').hidden = activeView!=='DAFTAR';
   document.getElementById('view-perusahaan').hidden = activeView!=='PERUSAHAAN';
+  document.getElementById('view-pic').hidden = activeView!=='PIC';
   document.getElementById('view-email').hidden = activeView!=='EMAIL';
   document.getElementById('view-umum').hidden = activeView!=='UMUM';
   document.getElementById('view-akses').hidden = activeView!=='AKSES';
@@ -7548,18 +7589,18 @@ function renderJobCard(j){
           </div>
           ${(function(){
             const pic = [
-              ['laporan','Laporan', j.email_laporan, j.wa_laporan],
-              ['invoice','Invoice', j.email_invoice, j.wa_invoice],
-              ['ded','DED', j.pic_ded, j.wa_ded],
-              ['rks','RKS', j.pic_rks, j.wa_rks],
-              ['rab','RAB', j.pic_rab, j.wa_rab],
+              ['laporan','Laporan', j.email_laporan, j.wa_laporan, j.pic_nama_laporan],
+              ['invoice','Invoice', j.email_invoice, j.wa_invoice, j.pic_nama_invoice],
+              ['ded','DED', j.pic_ded, j.wa_ded, j.pic_nama_ded],
+              ['rks','RKS', j.pic_rks, j.wa_rks, j.pic_nama_rks],
+              ['rab','RAB', j.pic_rab, j.wa_rab, j.pic_nama_rab],
             ].filter(x=>x[2] || x[3]);
             if(!pic.length) return '';
             return `<div class="k">PIC Pekerjaan <span style="text-transform:none;color:var(--muted);">(klik "Kirim Pesan" utk notif langsung ke PIC)</span></div>
               <div class="pic-list">
-                ${pic.map(([type,label,email,wa])=>`
+                ${pic.map(([type,label,email,wa,nama])=>`
                   <div class="pic-row">
-                    <span class="pic-label">${esc(label)}</span>
+                    <span class="pic-label">${esc(label)}${nama? ' · '+esc(nama) : ''}</span>
                     <span class="pic-email">${email? '✉ '+esc(email): ''}${email&&wa?' &middot; ':''}${wa? '💬 '+esc(wa): ''}</span>
                     <button type="button" class="btn btn-sm" data-pic-send data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-pic-type="${type}">Kirim Pesan</button>
                   </div>`).join('')}
@@ -7809,22 +7850,108 @@ const STANDARD_FIELD_GROUPS = [
     {key:'status_print', label:'Print', type:'select', options:OPT_PRINT},
     {key:'status_kirim', label:'Kirim', type:'select', options:OPT_KIRIM},
   ]},
-  {title:'PIC Pekerjaan', fields:[
-    {key:'email_laporan', label:'Email PIC Laporan', type:'text'},
-    {key:'wa_laporan', label:'WA PIC Laporan', type:'text'},
-    {key:'email_invoice', label:'Email PIC Invoice', type:'text'},
-    {key:'wa_invoice', label:'WA PIC Invoice', type:'text'},
-    {key:'pic_ded', label:'Email PIC DED', type:'text'},
-    {key:'wa_ded', label:'WA PIC DED', type:'text'},
-    {key:'pic_rks', label:'Email PIC RKS', type:'text'},
-    {key:'wa_rks', label:'WA PIC RKS', type:'text'},
-    {key:'pic_rab', label:'Email PIC RAB', type:'text'},
-    {key:'wa_rab', label:'WA PIC RAB', type:'text'},
-  ]},
+];
+const STANDARD_FIELD_GROUPS_CATATAN = [
   {title:'Catatan', fields:[
     {key:'catatan', label:'Catatan', type:'textarea', full:true},
   ]},
 ];
+/* ================= PIC Pekerjaan (kontak per peran, ambil dari direktori PIC) ================= */
+const PIC_ROLE_DEFS = [
+  {key:'laporan', label:'Laporan', emailField:'email_laporan', waField:'wa_laporan', namaField:'pic_nama_laporan'},
+  {key:'invoice', label:'Invoice', emailField:'email_invoice', waField:'wa_invoice', namaField:'pic_nama_invoice'},
+  {key:'ded', label:'DED', emailField:'pic_ded', waField:'wa_ded', namaField:'pic_nama_ded'},
+  {key:'rks', label:'RKS', emailField:'pic_rks', waField:'wa_rks', namaField:'pic_nama_rks'},
+  {key:'rab', label:'RAB', emailField:'pic_rab', waField:'wa_rab', namaField:'pic_nama_rab'},
+];
+function picOptionsHTML(selectedName, hasLegacy){
+  const names = Object.keys(STATE.__pics||{}).sort((a,b)=> a.localeCompare(b));
+  let opts = '';
+  if(hasLegacy){
+    opts += `<option value="__legacy__" ${!selectedName?'selected':''}>(pakai data lama — tidak diubah)</option>`;
+  }
+  opts += `<option value="" ${(!hasLegacy && !selectedName)?'selected':''}>— Belum ada PIC —</option>`;
+  names.forEach(n=>{
+    opts += `<option value="${esc(n)}" ${selectedName===n?'selected':''}>${esc(n)}</option>`;
+  });
+  opts += `<option value="__new__">+ Tambah PIC Baru…</option>`;
+  return opts;
+}
+function picPreviewText(name){
+  if(!name) return '';
+  const rec = (STATE.__pics||{})[name];
+  if(!rec) return '';
+  const parts = [];
+  if(rec.email) parts.push('✉ '+rec.email);
+  if(rec.wa) parts.push('💬 '+rec.wa);
+  return parts.join(' &middot; ');
+}
+function picAssignRowHTML(rd, data){
+  const namaVal = data[rd.namaField] || '';
+  const hasLegacy = !namaVal && (data[rd.emailField] || data[rd.waField]);
+  return `<div class="pic-assign-row" data-pic-row="${rd.key}">
+    <div class="pic-assign-role">${esc(rd.label)}</div>
+    <div>
+      <select data-pic-role-select="${rd.key}" data-pic-nama-field="${rd.namaField}" data-pic-email-field="${rd.emailField}" data-pic-wa-field="${rd.waField}">
+        ${picOptionsHTML(namaVal, hasLegacy)}
+      </select>
+      <div class="pic-assign-preview" data-pic-preview="${rd.key}">${hasLegacy ? `${data[rd.emailField]?'✉ '+esc(data[rd.emailField]):''}${data[rd.emailField]&&data[rd.waField]?' &middot; ':''}${data[rd.waField]?'💬 '+esc(data[rd.waField]):''}` : picPreviewText(namaVal)}</div>
+    </div>
+  </div>`;
+}
+function picAssignEditorHTML(data){
+  data = data || {};
+  return `
+    <div class="fieldset-title">PIC Pekerjaan <span style="text-transform:none;color:var(--muted);font-weight:400;">(pilih dari direktori PIC — kalau belum ada, pilih "+ Tambah PIC Baru")</span></div>
+    <div id="pic-assign-editor">
+      ${PIC_ROLE_DEFS.map(rd=> picAssignRowHTML(rd, data)).join('')}
+    </div>`;
+}
+function wirePicAssignEditor(form){
+  form.querySelectorAll('[data-pic-role-select]').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const preview = form.querySelector(`[data-pic-preview="${sel.dataset.picRoleSelect}"]`);
+      if(sel.value === '__new__'){
+        openPicFormModal({
+          onSaved: (name)=>{
+            form.querySelectorAll('[data-pic-role-select]').forEach(otherSel=>{
+              const isLegacyOption = !!otherSel.querySelector('option[value="__legacy__"]');
+              const keepLegacy = isLegacyOption && otherSel.value === '__legacy__';
+              const cur = keepLegacy ? '' : (otherSel.value==='__new__' ? '' : otherSel.value);
+              otherSel.innerHTML = picOptionsHTML(cur, isLegacyOption);
+              if(keepLegacy) otherSel.value = '__legacy__';
+            });
+            sel.value = name;
+            preview.innerHTML = picPreviewText(name);
+          },
+          onCancel: ()=>{ sel.value = sel.querySelector('option[value="__legacy__"]') ? '__legacy__' : ''; }
+        });
+        return;
+      }
+      if(sel.value === '__legacy__'){
+        preview.innerHTML = '';
+        return;
+      }
+      preview.innerHTML = picPreviewText(sel.value);
+    });
+  });
+}
+function collectPicAssignments(form, target){
+  PIC_ROLE_DEFS.forEach(rd=>{
+    const sel = form.querySelector(`[data-pic-role-select="${rd.key}"]`);
+    if(!sel) return;
+    const v = sel.value;
+    if(v === '__legacy__' || v === '__new__') return; // biarkan nilai lama pada target (sudah di-copy dari job asal)
+    if(v === ''){
+      target[rd.namaField] = null; target[rd.emailField] = null; target[rd.waField] = null;
+      return;
+    }
+    const rec = (STATE.__pics||{})[v];
+    target[rd.namaField] = v;
+    target[rd.emailField] = rec ? (rec.email || null) : null;
+    target[rd.waField] = rec ? (rec.wa || null) : null;
+  });
+}
 const DOC_NOTE_HTML = `<div class="fieldset-title">Kelengkapan Dokumen</div>
   <div class="note-box" style="margin-top:0;">Dokumen (KAK, Kontrak, Ustek, Laporan, RAB, Invoice) — termasuk upload berkasnya — dikelola lewat chip dokumen di kartu pekerjaan, bukan di form ini. Simpan dulu perubahan di sini, lalu klik chip dokumennya di kartu.</div>`;
 const JAKON_FIELD_GROUPS = [
@@ -7971,15 +8098,17 @@ function addOrEditStandardJob(bidang, job){
   if(!canEdit()){ showToast('Kamu cuma punya akses lihat-saja (Viewer) — hubungi Admin untuk isi/edit data.', true); return; }
   const isNew = !job;
   const data = job || {};
-  const bodyHTML = buildGroupsHTML(STANDARD_FIELD_GROUPS, data) + DOC_NOTE_HTML + personilEditorHTML(data.personil);
-  showModal({
+  const bodyHTML = buildGroupsHTML(STANDARD_FIELD_GROUPS, data) + picAssignEditorHTML(data) + buildGroupsHTML(STANDARD_FIELD_GROUPS_CATATAN, data) + DOC_NOTE_HTML + personilEditorHTML(data.personil);
+  const modal = showModal({
     title: isNew ? `+ Tambah Pekerjaan — ${BIDANG_LABEL[bidang]}` : `Edit Pekerjaan — ${BIDANG_LABEL[bidang]}`,
     submitLabel: isNew ? 'Tambahkan' : 'Simpan Perubahan',
     bodyHTML,
     onSubmit: async (form)=>{
       const target = isNew ? {} : Object.assign({}, job);
       collectGroupFields(STANDARD_FIELD_GROUPS, form, target);
+      collectGroupFields(STANDARD_FIELD_GROUPS_CATATAN, form, target);
       if(!target.nama_pekerjaan){ alert('Nama pekerjaan wajib diisi.'); return false; }
+      collectPicAssignments(form, target);
       target.personil = collectPersonil(form);
       if(isNew){
         target._id = newId();
@@ -7994,6 +8123,7 @@ function addOrEditStandardJob(bidang, job){
       return true;
     }
   });
+  wirePicAssignEditor(modal.querySelector('#modal-form'));
 }
 
 function addOrEditJakon(job){
@@ -8307,6 +8437,108 @@ function openDocModal(bidang, id, field, fieldLabel){
       wireFileInfoLinks();
     }catch(e){ showToast('Gagal membaca berkas: '+e.message, true); }
   });
+}
+
+/* ================= Direktori PIC Pekerjaan (kontak: nama, email, WA) ================= */
+let picSearchTerm = '';
+function openPicFormModal({name, onSaved, onCancel}){
+  const isNew = !name;
+  const rec = isNew ? {email:'', wa:''} : Object.assign({email:'', wa:''}, STATE.__pics[name]);
+  const usedCount = !isNew && DERIVED.picMap.get(name) ? DERIVED.picMap.get(name).jobs.length : 0;
+  const bodyHTML = `
+    <div class="field"><label>Nama PIC${isNew?' *':''}</label>${isNew
+      ? `<input type="text" data-field="nama" placeholder="mis. Eli Marlina" required>`
+      : `<div style="font-size:13.5px;padding:4px 0;font-weight:600;">${esc(name)}</div>`}</div>
+    <div class="field"><label>Email PIC</label><input type="email" data-field="email" value="${esc(rec.email||'')}" placeholder="nama@email.com"></div>
+    <div class="field"><label>No. WhatsApp PIC</label><input type="text" data-field="wa" value="${esc(rec.wa||'')}" placeholder="mis. 628123456789"></div>
+    ${!isNew ? `<div class="note-box" style="margin-top:0;">${usedCount>0 ? `PIC ini terpasang di <b>${usedCount}</b> pekerjaan — perubahan email/WA di sini baru berlaku ke pekerjaan itu saat pekerjaannya disimpan ulang.` : `PIC ini belum terpasang di pekerjaan manapun, jadi bisa dihapus.`}</div>` : ''}
+  `;
+  let cancelled = true;
+  const modal = showModal({
+    title: isNew ? '+ Tambah PIC Baru' : `Detail PIC — ${name}`,
+    submitLabel: isNew ? 'Tambahkan' : 'Simpan',
+    bodyHTML,
+    onSubmit: async (form)=>{
+      let finalName = name;
+      if(isNew){
+        finalName = form.querySelector('[data-field="nama"]').value.trim();
+        if(!finalName){ alert('Nama PIC wajib diisi.'); return false; }
+        const dup = Object.keys(STATE.__pics||{}).find(n=> n.toLowerCase()===finalName.toLowerCase());
+        if(dup){ alert(`PIC dengan nama "${dup}" sudah ada di direktori. Pilih nama itu dari dropdown, atau gunakan nama yang berbeda.`); return false; }
+      }
+      const email = form.querySelector('[data-field="email"]').value.trim();
+      const wa = form.querySelector('[data-field="wa"]').value.trim();
+      if(!STATE.__pics) STATE.__pics = {};
+      STATE.__pics[finalName] = {email: email||null, wa: wa||null};
+      cancelled = false;
+      await saveState();
+      computeDerived();
+      renderPicView();
+      showToast(isNew ? 'PIC baru ditambahkan.' : 'Detail PIC disimpan.');
+      if(onSaved) onSaved(finalName);
+      return true;
+    }
+  });
+  if(!isNew && usedCount===0 && canDelete()){
+    const footer = modal.querySelector('.modal-footer');
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn btn-sm btn-danger';
+    delBtn.style.marginRight = 'auto';
+    delBtn.textContent = '🗑 Hapus PIC';
+    delBtn.addEventListener('click', async ()=>{
+      if(!confirm(`Hapus PIC "${name}" dari direktori?`)) return;
+      delete STATE.__pics[name];
+      cancelled = false;
+      await saveState();
+      computeDerived();
+      renderPicView();
+      showToast('PIC dihapus.');
+      modal.remove();
+    });
+    footer.insertBefore(delBtn, footer.firstChild);
+  }
+  modal.querySelector('#modal-cancel').addEventListener('click', ()=>{ if(cancelled && onCancel) onCancel(); });
+  modal.querySelector('.modal-close').addEventListener('click', ()=>{ if(cancelled && onCancel) onCancel(); });
+}
+function renderPicDir(term){
+  let list = Array.from(DERIVED.picMap.values());
+  if(term){
+    const t = term.toLowerCase();
+    list = list.filter(p=>{
+      const rec = (STATE.__pics||{})[p.nama] || {};
+      return p.nama.toLowerCase().includes(t) || (rec.email||'').toLowerCase().includes(t) || (rec.wa||'').toLowerCase().includes(t)
+        || p.jobs.some(j=>(j.nama_pekerjaan||'').toLowerCase().includes(t));
+    });
+  }
+  list.sort((a,b)=> b.jobs.length - a.jobs.length || a.nama.localeCompare(b.nama));
+  if(!list.length) return `<div class="empty">Tidak ada PIC yang cocok dengan pencarian. Klik "+ Tambah PIC" untuk menambahkan.</div>`;
+  return list.map(p=>{
+    const rec = (STATE.__pics||{})[p.nama] || {};
+    return `
+    <div class="dir-card clickable" data-pic="${esc(p.nama)}" role="button" tabindex="0">
+      <div class="dir-head">
+        <div>
+          <div class="dir-name">${esc(p.nama)} <span class="chev">›</span></div>
+          <div class="dir-sub">${rec.email? '✉ '+esc(rec.email):''}${rec.email&&rec.wa?' &middot; ':''}${rec.wa? '💬 '+esc(rec.wa):''}${(!rec.email&&!rec.wa)?'Belum ada kontak — klik untuk melengkapi':''}</div>
+          <div class="dir-hint">Klik untuk lihat/lengkapi kontak PIC</div>
+        </div>
+        <div class="dir-stat">
+          <div class="n">${p.jobs.length}</div><div class="l">Pekerjaan</div>
+        </div>
+      </div>
+      ${p.jobs.length ? `<div class="dir-jobs">
+        ${p.jobs.map(j=>`<div class="dir-job-line"><span><span class="bidangtag">${esc(BIDANG_LABEL[j.bidang]||j.bidang)}</span>${esc(j.nama_pekerjaan||'–')} <span style="color:var(--muted)">(PIC ${esc(j.role)})</span></span></div>`).join('')}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+function renderPicView(){
+  const el = document.getElementById('content-pic');
+  const rc = document.getElementById('result-count-pic');
+  if(!el) return;
+  el.innerHTML = renderPicDir(picSearchTerm);
+  rc.textContent = `${DERIVED.picMap.size} PIC terdaftar`;
 }
 
 /* ================= Detail Perusahaan (direktur, NPWP, SBU, dokumen) ================= */
@@ -8636,6 +8868,7 @@ function importData(file){
       if(!parsed || !BIDANG_ORDER.some(b=>Array.isArray(parsed[b]))) throw new Error('Format file tidak dikenali');
       if(!parsed.__meta) parsed.__meta = {idCounter:0};
       if(!parsed.__companies) parsed.__companies = {};
+      if(!parsed.__pics) parsed.__pics = {};
       if(!Array.isArray(parsed.__meta.adminEmails)){
         parsed.__meta.adminEmails = parsed.__meta.adminEmail ? [parsed.__meta.adminEmail] : [];
       }
@@ -8691,6 +8924,14 @@ document.getElementById('search-perusahaan').addEventListener('input', (e)=>{
   perusahaanSearchTerm = e.target.value.trim();
   renderPerusahaanView();
 });
+document.getElementById('search-pic').addEventListener('input', (e)=>{
+  picSearchTerm = e.target.value.trim();
+  renderPicView();
+});
+document.getElementById('add-pic-btn').addEventListener('click', ()=>{
+  if(!canEdit()){ showToast('Kamu cuma punya akses lihat-saja (Viewer) — hubungi Admin untuk isi/edit data.', true); return; }
+  openPicFormModal({});
+});
 document.getElementById('cal-prev').addEventListener('click', ()=>{ calendarMonth.setMonth(calendarMonth.getMonth()-1); renderCalendar(); });
 document.getElementById('cal-next').addEventListener('click', ()=>{ calendarMonth.setMonth(calendarMonth.getMonth()+1); renderCalendar(); });
 document.getElementById('gantt-bidang-filter').addEventListener('change', (e)=>{ ganttBidangFilter = e.target.value; renderGantt(); });
@@ -8734,17 +8975,30 @@ document.addEventListener('click', (e)=>{
     openCompanyModal(companyCard.dataset.company);
     return;
   }
+  const picCard = e.target.closest('[data-pic]');
+  if(picCard){
+    openPicFormModal({name: picCard.dataset.pic});
+    return;
+  }
 });
 document.addEventListener('keydown', (e)=>{
   if(e.key!=='Enter' && e.key!==' ') return;
   const companyCard = e.target.closest('[data-company]');
   if(companyCard){ e.preventDefault(); openCompanyModal(companyCard.dataset.company); }
+  const picCard = e.target.closest('[data-pic]');
+  if(picCard){ e.preventDefault(); openPicFormModal({name: picCard.dataset.pic}); }
 });
 
 /* ================= Init ================= */
 function normalizeState(){
   if(!STATE.__meta) STATE.__meta = {idCounter:0, adminEmails:[]};
   if(!STATE.__companies) STATE.__companies = {};
+  if(!STATE.__pics) STATE.__pics = {};
+  Object.keys(STATE.__pics).forEach(name=>{
+    const rec = STATE.__pics[name];
+    if(rec.email===undefined) rec.email = '';
+    if(rec.wa===undefined) rec.wa = '';
+  });
   if(!Array.isArray(STATE.__meta.adminEmails)){
     STATE.__meta.adminEmails = STATE.__meta.adminEmail ? [STATE.__meta.adminEmail] : [];
   }
@@ -8766,6 +9020,7 @@ function renderAll(){
   renderTabs();
   renderContent();
   renderPerusahaanView();
+  renderPicView();
   renderEmailView();
   renderUmumView();
   renderAksesView();
