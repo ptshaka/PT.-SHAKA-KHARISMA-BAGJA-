@@ -7632,9 +7632,10 @@ function renderTabs(){
 /* ================= Job card rendering ================= */
 function docChip(label, val, bidang, id, field){
   const ok = !!val;
+  const hasLink = ok && typeof val==='object' && val.url;
   const hasFile = ok && typeof val==='object' && (val.fileData || val.fileRef);
-  const mark = hasFile ? '📎' : (ok ? '✓' : '–');
-  return `<button type="button" class="chip ${ok?'ok':''}${hasFile?' has-file':''}" data-doc-field data-bidang="${esc(bidang)}" data-id="${esc(id)}" data-field="${field}" data-label="${esc(label)}" title="Klik untuk ${ok?'ubah':'isi'} keterangan &amp; berkas${hasFile?' (ada berkas terlampir)':''}">
+  const mark = hasLink ? '🔗' : (hasFile ? '📎' : (ok ? '✓' : '–'));
+  return `<button type="button" class="chip ${ok?'ok':''}${(hasFile||hasLink)?' has-file':''}" data-doc-field data-bidang="${esc(bidang)}" data-id="${esc(id)}" data-field="${field}" data-label="${esc(label)}" title="Klik untuk ${ok?'ubah':'isi'} keterangan &amp; berkas${hasLink?' (ada link)':hasFile?' (ada berkas terlampir)':''}">
     <span class="mark">${mark}</span> ${esc(label)}
   </button>`;
 }
@@ -8664,6 +8665,8 @@ function openDataUrl(dataUrl, fallbackType){
   }catch(e){ showToast('Gagal membuka berkas: '+e.message, true); }
 }
 async function openStoredFile(fileObj){
+  if(!fileObj) return;
+  if(fileObj.url){ window.open(fileObj.url, '_blank'); return; }
   const data = await resolveFileData(fileObj);
   if(data) openDataUrl(data, fileObj.fileType);
 }
@@ -8799,7 +8802,8 @@ function openDocModal(bidang, id, field, fieldLabel){
   const current = job[field];
   const currentObj = (current && typeof current==='object') ? current : null;
   const currentLabel = currentObj ? (currentObj.label||'') : (current||'');
-  let workingFile = currentObj && (currentObj.fileData || currentObj.fileRef)
+  const currentUrl = currentObj ? (currentObj.url||'') : '';
+  let workingFile = currentObj && !currentObj.url && (currentObj.fileData || currentObj.fileRef)
     ? {fileName: currentObj.fileName, fileType: currentObj.fileType, fileData: currentObj.fileData||null, fileRef: currentObj.fileRef||null}
     : null;
   let fileCleared = false;
@@ -8809,7 +8813,8 @@ function openDocModal(bidang, id, field, fieldLabel){
     const bodyHTML = `
       <div class="field"><label>Keterangan / Nama Dokumen</label><div style="font-size:13.5px;padding:4px 0;">${currentLabel ? esc(currentLabel) : '<span style="color:var(--muted);">(belum diisi)</span>'}</div></div>
       <div class="field"><label>Berkas Terlampir</label>
-        ${workingFile ? `<div style="font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📎 ${esc(workingFile.fileName)}${workingFile.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}
+        ${currentUrl ? `<div style="font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">🔗 <a href="${esc(currentUrl)}" target="_blank" rel="noopener">${esc(currentUrl)}</a></div>`
+          : workingFile ? `<div style="font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📎 ${esc(workingFile.fileName)}${workingFile.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}
           <a href="#" id="doc-view-link" class="btn btn-sm">Lihat / Unduh</a></div>` : `<div style="color:var(--muted);font-size:12px;">Belum ada berkas terlampir.</div>`}
       </div>
     `;
@@ -8829,9 +8834,17 @@ function openDocModal(bidang, id, field, fieldLabel){
 
   const bodyHTML = `
     <div class="field"><label>Keterangan / Nama Dokumen</label><input type="text" id="doc-label-input" value="${esc(currentLabel)}" placeholder="mis. KAK Geoteknik, No. Kontrak, dst"></div>
-    <div class="field"><label>Berkas Terlampir</label><div id="doc-file-info">${fileInfoHTML()}</div></div>
+    <div class="field"><label>Berkas Terlampir (upload langsung)</label><div id="doc-file-info">${fileInfoHTML()}</div></div>
     <div class="field"><label>Upload Berkas Baru (opsional — PDF/JPG/PNG/Word/Excel)</label><input type="file" id="doc-file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"></div>
-    <div class="note-box" style="margin-top:4px;" id="doc-upload-note">${fbDb ? 'Berkas otomatis kesimpen terpisah di cloud (nggak numpang di data utama), jadi ukurannya nggak bakal bikin sinkron gagal.' : 'Berkas disimpan langsung di dalam data dashboard ini (mode lokal, belum sinkron cloud). Untuk file besar, andalkan tombol <b>Ekspor Data (.json)</b> sebagai backup.'}</div>
+    <div class="note-box" style="margin-top:4px;" id="doc-upload-note">${fbDb ? 'Berkas otomatis kesimpen terpisah di cloud (nggak numpang di data utama). Buat file yang beneran gede (puluhan MB), pakai opsi link di bawah aja, lebih ringan & pasti aman.' : 'Berkas disimpan langsung di dalam data dashboard ini (mode lokal, belum sinkron cloud). Untuk file besar, andalkan tombol <b>Ekspor Data (.json)</b> sebagai backup.'}</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin:10px 0;">— atau —</div>
+    <div class="field"><label>Tempel Link (Google Drive / OneDrive / dll — cocok buat file besar)</label>
+      <div style="display:flex;gap:8px;">
+        <input type="url" id="doc-link-input" value="${esc(currentUrl)}" style="flex:1;" placeholder="https://drive.google.com/file/d/...">
+        ${currentUrl ? `<button type="button" class="btn btn-sm" id="doc-link-open-btn">Buka</button>` : ''}
+      </div>
+    </div>
+    <div class="note-box" style="margin-top:4px;">Pastikan link-nya udah diatur "Siapa saja yang punya link bisa lihat", biar semua orang di tim bisa buka.</div>
   `;
 
   const modal = showModal({
@@ -8840,8 +8853,12 @@ function openDocModal(bidang, id, field, fieldLabel){
     bodyHTML,
     onSubmit: async ()=>{
       const label = modal.querySelector('#doc-label-input').value.trim();
+      const linkVal = modal.querySelector('#doc-link-input').value.trim();
       const finalFile = fileCleared ? null : workingFile;
-      if(!label && !finalFile){ job[field] = null; }
+      if(linkVal){
+        job[field] = { label: label || null, url: linkVal, fileName: null, fileType: null, fileData: null, fileRef: null };
+      }
+      else if(!label && !finalFile){ job[field] = null; }
       else if(finalFile){
         job[field] = {
           label: label || null,
@@ -8865,6 +8882,8 @@ function openDocModal(bidang, id, field, fieldLabel){
     if(rmBtn) rmBtn.addEventListener('click', ()=>{ fileCleared = true; workingFile = null; modal.querySelector('#doc-file-info').innerHTML = fileInfoHTML(); });
   }
   wireFileInfoLinks();
+  const linkOpenBtn = modal.querySelector('#doc-link-open-btn');
+  if(linkOpenBtn) linkOpenBtn.addEventListener('click', ()=> window.open(modal.querySelector('#doc-link-input').value.trim(), '_blank'));
 
   const fileInput = modal.querySelector('#doc-file-input');
   fileInput.addEventListener('change', async ()=>{
@@ -8891,7 +8910,7 @@ function openDocModal(bidang, id, field, fieldLabel){
           workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: dataUrl, fileRef: null};
           showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true);
         } else {
-          showToast(`Gagal upload "${f.name}" ke cloud dan berkas ini (${fmtBytes(f.size)}) kegedean buat disimpan lokal — nanti bisa bikin data lain ikut gagal tersimpan. Cek koneksi internet, terus coba upload lagi.`, true);
+          showToast(`Gagal upload "${f.name}" ke cloud dan berkas ini (${fmtBytes(f.size)}) kegedean buat disimpan lokal — coba pakai opsi "Tempel Link" di bawah aja.`, true);
           fileInput.value = '';
           return;
         }
@@ -9044,8 +9063,9 @@ function sbuListHTML(rec){
 }
 
 function companyFileRowHTML(f){
+  const isLink = !!f.url;
   return `<div class="cfile-row" data-file-id="${esc(f.id)}">
-    <div class="cfile-name">📎 ${esc(f.fileName)}${f.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}<span class="cfile-meta">${fmtBytes(f.fileSize||0)}${f.uploadedAt? ' · '+fmtDate(f.uploadedAt):''}</span></div>
+    <div class="cfile-name">${isLink?'🔗':'📎'} ${esc(f.fileName || f.url)}${f.fileRef?' <span class="mono" style="color:var(--muted);">(cloud)</span>':''}<span class="cfile-meta">${isLink?'Link eksternal':fmtBytes(f.fileSize||0)}${f.uploadedAt? ' · '+fmtDate(f.uploadedAt):''}</span></div>
     <div class="cfile-actions">
       <button type="button" class="btn btn-sm" data-view-cfile="${esc(f.id)}">Lihat / Unduh</button>
       ${canDelete() ? `<button type="button" class="btn btn-sm btn-danger" data-del-cfile="${esc(f.id)}">Hapus</button>` : ''}
@@ -9139,7 +9159,13 @@ function openCompanyModal(name){
       <label>Upload Dokumen (opsional — PDF/JPG/PNG/Word/Excel)</label>
       <input type="file" id="company-file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx">
     </div>
-    <div class="note-box" style="margin-top:4px;">${fbDb ? 'Berkas otomatis kesimpen terpisah di cloud (nggak numpang di data utama), jadi ukurannya nggak bakal bikin sinkron gagal.' : 'Berkas disimpan langsung di dalam data dashboard ini (mode lokal). Gunakan <b>Ekspor Data (.json)</b> secara rutin sebagai backup.'}</div>
+    <div class="note-box" style="margin-top:4px;">${fbDb ? 'Berkas otomatis kesimpen terpisah di cloud (nggak numpang di data utama). Buat file gede (puluhan MB), mending pakai opsi link di bawah aja.' : 'Berkas disimpan langsung di dalam data dashboard ini (mode lokal). Gunakan <b>Ekspor Data (.json)</b> secara rutin sebagai backup.'}</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin:10px 0;">— atau —</div>
+    <div class="field-grid">
+      <div class="field"><label>Nama Dokumen (buat link)</label><input type="text" id="company-link-name-input" placeholder="mis. Kontrak Payung 2026"></div>
+      <div class="field"><label>Tempel Link (Google Drive dll)</label><input type="url" id="company-link-input" placeholder="https://drive.google.com/file/d/..."></div>
+    </div>
+    <button type="button" class="btn btn-sm" id="company-link-add-btn">+ Tambah dari Link</button>
   `;
 
   const modal = showModal({
@@ -9171,6 +9197,24 @@ function openCompanyModal(name){
   function refreshFileList(){
     modal.querySelector('#company-file-list').innerHTML = companyFileListHTML(rec);
   }
+
+  const linkAddBtn = modal.querySelector('#company-link-add-btn');
+  linkAddBtn.addEventListener('click', async ()=>{
+    const nameInput = modal.querySelector('#company-link-name-input');
+    const linkInput = modal.querySelector('#company-link-input');
+    const linkVal = linkInput.value.trim();
+    if(!linkVal){ showToast('Isi dulu link-nya.', true); return; }
+    const newFile = {
+      id: 'cf' + Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+      fileName: nameInput.value.trim() || linkVal, fileType: null, fileSize: 0,
+      uploadedAt: new Date().toISOString(), fileData: null, fileRef: null, url: linkVal,
+    };
+    rec.files.push(newFile);
+    await saveState();
+    refreshFileList();
+    nameInput.value = ''; linkInput.value = '';
+    showToast('Link dokumen ditambahkan.');
+  });
 
   const addSbuBtn = modal.querySelector('#add-sbu-btn');
   addSbuBtn.addEventListener('click', ()=>{
