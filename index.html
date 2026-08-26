@@ -209,27 +209,31 @@ h1,h2,h3,.display{ font-family: 'Space Grotesk', sans-serif; }
 .reminder-group-title.tone-amber .rg-count{ background:var(--amber-bg); color:var(--amber); }
 
 /* ---------- Calendar ---------- */
-.calendar-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
-.calendar-month-label{ font-family:'Space Grotesk',sans-serif; font-weight:700; color:var(--navy); font-size:15px; }
-.cal-weekdays{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:6px; }
-.cal-weekdays div{ text-align:center; font-size:10px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.04em; }
-.cal-days{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+.calendar-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.calendar-month-label{ font-family:'Space Grotesk',sans-serif; font-weight:700; color:var(--navy); font-size:13px; }
+.cal-weekdays{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; margin-bottom:4px; width:100%; }
+.cal-weekdays div{ text-align:center; font-size:9px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.02em; }
+.cal-days{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; width:100%; }
 .cal-cell{
-  aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
-  border-radius:8px; font-size:12.5px; color:var(--ink); position:relative; border:1px solid transparent;
+  height:34px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  border-radius:5px; font-size:9px; color:var(--ink); position:relative; border:1px solid transparent; box-sizing:border-box;
 }
 .cal-cell.empty{ visibility:hidden; }
-.cal-cell.has-items{ cursor:pointer; background:var(--paper-2); transition: background .12s ease, transform .12s ease, border-color .12s ease; }
-.cal-cell.has-items:hover{ background:#e4edf3; border-color:var(--blue-line); transform:scale(1.06); }
-.cal-daynum{ line-height:1; }
+.cal-cell.has-items{ cursor:pointer; background:var(--paper-2); transition: background .12s ease, border-color .12s ease; }
+.cal-cell.has-items:hover{ background:#e4edf3; border-color:var(--blue-line); }
+.cal-daynum{ line-height:1; font-size:9.5px; color:var(--muted); }
 .cal-cell.today .cal-daynum{
-  background:var(--navy); color:#fff; border-radius:50%; width:21px; height:21px;
-  display:flex; align-items:center; justify-content:center; font-size:11px;
+  background:var(--navy); color:#fff; border-radius:50%; width:15px; height:15px;
+  display:flex; align-items:center; justify-content:center; font-size:8px;
 }
-.cal-dot{ width:6px; height:6px; border-radius:50%; display:inline-block; }
-.cal-dot.red{ background:var(--red); } .cal-dot.amber{ background:var(--amber); } .cal-dot.gray{ background:var(--muted); }
-.cal-dots{ display:flex; gap:2px; }
-.cal-legend{ display:flex; gap:16px; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px dashed #d7e0e6; font-size:11.5px; color:var(--muted); }
+.cal-count{
+  min-width:16px; height:16px; padding:0 3px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+  font-family:'IBM Plex Mono',monospace; font-size:9.5px; font-weight:800; color:#fff; line-height:1;
+}
+.cal-count.red{ background:var(--red); }
+.cal-count.amber{ background:var(--amber); }
+.cal-count.gray{ background:var(--muted); }
+.cal-legend{ display:flex; gap:16px; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px dashed #d7e0e6; font-size:11.5px; color:var(--muted); justify-content:center; }
 .cal-legend span{ display:flex; align-items:center; gap:6px; }
 
 /* ---------- Ringkasan notification banner ---------- */
@@ -362,7 +366,7 @@ h1,h2,h3,.display{ font-family: 'Space Grotesk', sans-serif; }
 .job-title{ flex:1; min-width:0; }
 .job-title .name{ font-weight:600; color:var(--navy); font-size:13.5px; }
 .job-title .company{ font-size:12px; color:var(--muted); margin-top:2px; }
-.job-right{ display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.job-right{ display:flex; align-items:center; gap:8px; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end; max-width:280px; }
 .job-pagu{ font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ink); text-align:right; }
 .job-pagu .sub{ font-size:10.5px; color:var(--muted); font-weight:400; margin-top:2px; }
 
@@ -392,6 +396,7 @@ h1,h2,h3,.display{ font-family: 'Space Grotesk', sans-serif; }
 .chip:hover{ border-color:var(--blue); color:var(--blue); transform: translateY(-1px); box-shadow:0 2px 5px rgba(14,39,64,0.08); }
 .chip.ok{ color:var(--green); border-color:#bfe2cd; background:var(--green-bg); font-weight:600; }
 .chip.ok:hover{ color:var(--green); border-color:var(--green); }
+.chip.has-file{ border-style:solid; border-width:1.5px; box-shadow:0 1px 3px rgba(28,122,79,0.15); }
 .chip .mark{ font-weight:700; }
 
 table.personil{ width:100%; border-collapse:collapse; margin-top:6px; font-size:12.5px;}
@@ -702,9 +707,9 @@ table.jakon td.actions{ white-space:nowrap; }
       </div>
       <div id="calendar-grid"></div>
       <div class="cal-legend">
-        <span><span class="cal-dot red"></span> Ada yang terlambat</span>
-        <span><span class="cal-dot amber"></span> Menjelang tenggat</span>
-        <span><span class="cal-dot gray"></span> Tenggat lain</span>
+        <span><span class="cal-count red" style="display:inline-flex;">3</span> Ada yang terlambat</span>
+        <span><span class="cal-count amber" style="display:inline-flex;">2</span> Menjelang tenggat</span>
+        <span><span class="cal-count gray" style="display:inline-flex;">1</span> Tenggat lain</span>
       </div>
     </div>
 
@@ -6212,7 +6217,7 @@ table.jakon td.actions{ white-space:nowrap; }
 <script>
 const RAW = JSON.parse(document.getElementById('raw-data').textContent);
 const BIDANG_ORDER = ['BANGUNAN GEDUNG','JALAN','DRAINASE','IRIGASI','JAKON','LUAR DINAS'];
-const STANDARD_BIDANG = ['BANGUNAN GEDUNG','JALAN','DRAINASE','IRIGASI','LUAR DINAS'];
+const STANDARD_BIDANG = ['BANGUNAN GEDUNG','JALAN','DRAINASE','IRIGASI','JAKON','LUAR DINAS'];
 const BIDANG_LABEL = {
   'BANGUNAN GEDUNG':'Bangunan Gedung',
   'JALAN':'Jalan',
@@ -6621,10 +6626,10 @@ async function afterMutate(){
 function computeDerived(){
   const allJobs = [];
   STANDARD_BIDANG.forEach(b=> (STATE[b]||[]).forEach(j=> allJobs.push(Object.assign({bidang:b}, j))) );
-  const jakonJobs = (STATE['JAKON']||[]).map(j=> Object.assign({bidang:'JAKON'}, j));
+  const jakonJobs = allJobs.filter(j=>j.bidang==='JAKON');
 
-  const totalPekerjaan = allJobs.length + jakonJobs.length;
-  const semuaJobs = allJobs.concat(jakonJobs);
+  const totalPekerjaan = allJobs.length;
+  const semuaJobs = allJobs;
   const totalNilaiPagu = semuaJobs.reduce((s,j)=> s + (typeof j.nilai_pagu==='number'? j.nilai_pagu:0), 0);
   const totalNilaiDiterima = semuaJobs.reduce((s,j)=> s + (typeof j.nilai_diterima==='number'? j.nilai_diterima:0), 0);
   const paguForDiterima = semuaJobs.reduce((s,j)=> s + (typeof j.nilai_diterima==='number' && typeof j.nilai_pagu==='number' ? j.nilai_pagu : 0), 0);
@@ -6646,7 +6651,7 @@ function computeDerived(){
   });
 
   const perusahaanMap = new Map();
-  allJobs.concat(jakonJobs).forEach(j=>{
+  allJobs.forEach(j=>{
     if(!j.perusahaan) return;
     const key = j.perusahaan.trim();
     if(key === '???') return;
@@ -6707,7 +6712,6 @@ function renderKPIs(){
     {label:'Total Pekerjaan', value: DERIVED.totalPekerjaan, sub: `${STANDARD_BIDANG.length} bidang teknis + JAKON`, icon: ICON_DOC},
     {label:'Total Nilai Pagu', value: fmtIDRCompact(DERIVED.totalNilaiPagu), full: fmtIDR(DERIVED.totalNilaiPagu), sub: 'Seluruh bidang, akumulasi pagu', icon: ICON_COIN},
     {label:'Total Nilai Diterima', value: fmtIDRCompact(DERIVED.totalNilaiDiterima), full: fmtIDR(DERIVED.totalNilaiDiterima), sub: DERIVED.pctDiterima!=null ? `${DERIVED.pctDiterima.toFixed(1)}% dari pagu (pekerjaan yg sudah terisi)` : 'Belum ada data nilai diterima', icon: ICON_WALLET},
-    {label:'Personil Terlibat', value: DERIVED.personilMap.size, sub: 'Individu unik lintas pekerjaan', icon: ICON_PEOPLE},
     {label:'Perusahaan Mitra', value: DERIVED.perusahaanMap.size, sub: '"Bendera" penyedia jasa', icon: ICON_BUILDING},
   ];
   el.innerHTML = kpiData.map(k=>`
@@ -6726,7 +6730,7 @@ function renderChart(){
     'IRIGASI': '#0a3d5c', 'JAKON': '#e2610c', 'LUAR DINAS': '#5b8c3e',
   };
   const rows = BIDANG_ORDER.map(b=>{
-    const jobs = b==='JAKON' ? DERIVED.jakonJobs : DERIVED.allJobs.filter(j=>j.bidang===b);
+    const jobs = DERIVED.allJobs.filter(j=>j.bidang===b);
     const total = jobs.reduce((s,j)=> s + (typeof j.nilai_pagu==='number'? j.nilai_pagu:0), 0);
     return {b, total, count: jobs.length};
   });
@@ -6866,10 +6870,10 @@ function renderCalendar(){
     const cellDate = new Date(year, month, d);
     const isToday = cellDate.getTime()===today.getTime();
     const items = dayMap[d] || [];
-    const tones = [...new Set(items.map(x=>x.tone))];
+    const worstTone = items.some(x=>x.tone==='red') ? 'red' : (items.some(x=>x.tone==='amber') ? 'amber' : (items.length ? 'gray' : ''));
     cells += `<div class="cal-cell ${isToday?'today':''} ${items.length?'has-items':''}" data-cal-day="${d}" title="${items.length? items.length+' pekerjaan':''}">
       <span class="cal-daynum">${d}</span>
-      ${items.length ? `<span class="cal-dots">${tones.map(t=>`<span class="cal-dot ${t}"></span>`).join('')}</span>` : ''}
+      ${items.length ? `<span class="cal-count ${worstTone}">${items.length}</span>` : ''}
     </div>`;
   }
   grid.innerHTML = `
@@ -7063,7 +7067,7 @@ function buildPrintReport(){
   ];
 
   const bidangSections = BIDANG_ORDER.map(b=>{
-    const jobs = b==='JAKON' ? DERIVED.jakonJobs : DERIVED.allJobs.filter(j=>j.bidang===b);
+    const jobs = DERIVED.allJobs.filter(j=>j.bidang===b);
     if(!jobs.length) return '';
     return `
       <h3 style="margin:18px 0 6px;font-family:Arial,sans-serif;font-size:13px;">${esc(BIDANG_LABEL[b])} (${jobs.length} pekerjaan)</h3>
@@ -7210,9 +7214,7 @@ function renderGlobalSearch(){
     return;
   }
   const t = term.toLowerCase();
-  const std = DERIVED.allJobs.filter(j=> jobMatches(j, term));
-  const jakon = DERIVED.jakonJobs.filter(j=> (j.nama_pekerjaan||'').toLowerCase().includes(t) || (j.perusahaan||'').toLowerCase().includes(t));
-  const combined = [...std, ...jakon];
+  const combined = DERIVED.allJobs.filter(j=> jobMatches(j, term));
   if(!combined.length){
     box.innerHTML = `<div class="empty" style="padding:24px;">Tidak ada pekerjaan yang cocok dengan "${esc(term)}".</div>`;
     return;
@@ -7621,9 +7623,9 @@ function renderTabs(){
 /* ================= Job card rendering ================= */
 function docChip(label, val, bidang, id, field){
   const ok = !!val;
-  const hasFile = ok && typeof val==='object' && val.fileData;
+  const hasFile = ok && typeof val==='object' && (val.fileData || val.fileRef);
   const mark = hasFile ? '📎' : (ok ? '✓' : '–');
-  return `<button type="button" class="chip ${ok?'ok':''}" data-doc-field data-bidang="${esc(bidang)}" data-id="${esc(id)}" data-field="${field}" data-label="${esc(label)}" title="Klik untuk ${ok?'ubah':'isi'} keterangan &amp; berkas">
+  return `<button type="button" class="chip ${ok?'ok':''}${hasFile?' has-file':''}" data-doc-field data-bidang="${esc(bidang)}" data-id="${esc(id)}" data-field="${field}" data-label="${esc(label)}" title="Klik untuk ${ok?'ubah':'isi'} keterangan &amp; berkas${hasFile?' (ada berkas terlampir)':''}">
     <span class="mark">${mark}</span> ${esc(label)}
   </button>`;
 }
@@ -7651,6 +7653,12 @@ function rincianPotonganHTML(j){
       ${total>0? `<br><b>Total potongan: ${fmtIDR(total)}</b>` : ''}
     </div>`;
 }
+function isBelumBerkontrak(j){
+  const p = (j.perusahaan||'').trim().toLowerCase();
+  const noVendor = !p || p === 'belum berkontrak';
+  const noSpk = !j.no_spk || !j.no_spk.trim();
+  return noVendor || noSpk;
+}
 function renderJobCard(j){
   const statusKey = classifyStatus(j);
   const statusTone2 = {selesai:'green', proses:'amber', belum:'red', unk:'gray'}[statusKey];
@@ -7664,6 +7672,7 @@ function renderJobCard(j){
         <div class="company">${j.perusahaan? esc(j.perusahaan) : '<em>belum ada penyedia</em>'} &middot; <span class="mono">${esc(BIDANG_LABEL[j.bidang])}</span></div>
       </div>
       <div class="job-right">
+        ${isBelumBerkontrak(j) ? `<span class="badge red" title="Perusahaan belum terisi / berstatus belum berkontrak">⚠ Belum Berkontrak</span>` : ''}
         <span class="badge ${statusTone2}">${esc(statusText)}</span>
         <div class="job-pagu">
           <div>${fmtIDR(j.nilai_pagu)}</div>
@@ -7766,20 +7775,19 @@ function renderJobCard(j){
 }
 
 function renderJakonCard(j){
-  let statusText, statusTone2;
-  if(j.nilai_diterima!=null){ statusText='Selesai'; statusTone2='green'; }
-  else if(j.perusahaan && j.perusahaan.trim() && j.perusahaan.trim().toLowerCase()!=='belum berkontrak'){ statusText='Dalam Proses'; statusTone2='amber'; }
-  else { statusText='Belum Berkontrak'; statusTone2='red'; }
-
+  const statusKey = classifyStatus(j);
+  const statusTone2 = {selesai:'green', proses:'amber', belum:'red', unk:'gray'}[statusKey];
+  const statusText = j.status_ringkas || j.progres || j.status_data_pekerjaan || 'Belum ada info';
   return `
   <details class="job tone-${statusTone2}" data-job-id="${esc(j._id)}">
     <summary>
       <span class="job-no mono">#${fmtNo(j.no)}</span>
       <div class="job-title">
         <div class="name">${esc(j.nama_pekerjaan||'(tanpa nama pekerjaan)')}</div>
-        <div class="company">${j.perusahaan? esc(j.perusahaan) : '<em>belum berkontrak</em>'} &middot; <span class="mono">Jasa Konstruksi</span></div>
+        <div class="company">${j.perusahaan? esc(j.perusahaan) : '<em>belum ada penyedia</em>'} &middot; <span class="mono">Jasa Konstruksi</span></div>
       </div>
       <div class="job-right">
+        ${isBelumBerkontrak(j) ? `<span class="badge red" title="Perusahaan belum terisi / berstatus belum berkontrak">⚠ Belum Berkontrak</span>` : ''}
         <span class="badge ${statusTone2}">${esc(statusText)}</span>
         <div class="job-pagu">
           <div>${fmtIDR(j.nilai_pagu)}</div>
@@ -7798,24 +7806,85 @@ function renderJakonCard(j){
           <div class="k">Nilai Pagu</div><div class="v mono">${fmtIDR(j.nilai_pagu)}</div>
           ${rincianPotonganHTML(j)}
           <div class="k">Nilai Diterima</div><div class="v mono">${fmtIDR(j.nilai_diterima)}</div>
-          <div class="k">Modal</div><div class="v mono">${fmtIDR(j.modal)}</div>
-          <div class="k">Profit</div><div class="v mono">${fmtIDR(j.profit)}</div>
-          <div class="k">Margin</div><div class="v mono">${j.persen!=null ? (j.persen*100).toFixed(1)+'%' : '–'}</div>
+          ${(j.nilai_pagu!=null && j.nilai_diterima!=null) ? `<div class="k">Selisih (Pagu − Diterima)</div><div class="v mono">${fmtIDR(j.nilai_pagu-j.nilai_diterima)} (${(((j.nilai_pagu-j.nilai_diterima)/j.nilai_pagu)*100).toFixed(1)}%)</div>` : ''}
+          <div class="k">No. SPK</div><div class="v mono">${esc(j.no_spk)||'–'}</div>
+          <div class="k">Tanggal SPK</div><div class="v mono">${fmtDate(j.tanggal_spk)}</div>
+          <div class="k">No. SPMK</div><div class="v mono">${esc(j.no_spmk)||'–'}</div>
+          <div class="k">Periode Pelaksanaan</div><div class="v mono">${fmtDate(j.tanggal_mulai)} &rarr; ${fmtDate(j.tanggal_akhir)} (${j.hari_kerja||'–'})</div>
+          <div class="k">Status Waktu Kerja</div><div class="v">${esc(j.status_waktu)||'–'}</div>
+          ${(j.tl_lpse||j.tl_kontrak||j.tl_mulai||j.tl_akhir||j.tl_penagihan||j.tl_pencairan) ? `
+          <div class="k" style="margin-top:10px;">Timeline</div>
+          <div class="v" style="font-size:11.5px; line-height:1.7;">
+            ${j.tl_lpse? 'LPSE (Pengadaan): '+fmtDate(j.tl_lpse)+'<br>':''}
+            ${j.tl_kontrak? 'Kontrak: '+fmtDate(j.tl_kontrak)+'<br>':''}
+            ${j.tl_mulai? 'Mulai Pelaksanaan: '+fmtDate(j.tl_mulai)+'<br>':''}
+            ${j.tl_akhir? 'Akhir Pelaksanaan: '+fmtDate(j.tl_akhir)+'<br>':''}
+            ${j.tl_penagihan? 'Penagihan: '+fmtDate(j.tl_penagihan)+'<br>':''}
+            ${j.tl_pencairan? 'Pencairan: '+fmtDate(j.tl_pencairan):''}
+          </div>` : ''}
         </div>
         <div class="info-block">
-          <div class="k">Timeline</div>
-          <div class="v" style="font-size:11.5px; line-height:1.7;">
-            LPSE (Pengadaan): ${fmtDate(j.tl_lpse)}<br>
-            Kontrak: ${fmtDate(j.tl_kontrak)}<br>
-            Mulai Pelaksanaan: ${fmtDate(j.tl_mulai)}<br>
-            Akhir Pelaksanaan: ${fmtDate(j.tl_akhir)}<br>
-            Penagihan: ${fmtDate(j.tl_penagihan)}<br>
-            Pencairan: ${fmtDate(j.tl_pencairan)}
+          <div class="k">Status Pekerjaan</div>
+          <div class="chip-row" style="margin-top:4px;">
+            ${statusBadge('Data', j.status_data_pekerjaan)}
+            ${statusBadge('Pencairan', j.status_pencairan)}
+            ${statusBadge('Print', j.status_print)}
+            ${statusBadge('Kirim', j.status_kirim)}
           </div>
+          <div class="k">Kelengkapan Dokumen <span style="text-transform:none;color:var(--muted);">(klik chip utk isi keterangan &amp; upload berkas)</span></div>
+          <div class="chip-row">
+            ${docChip('KAK', j.dok_kak, 'JAKON', j._id, 'dok_kak')}
+            ${docChip('Kontrak', j.dok_kontrak, 'JAKON', j._id, 'dok_kontrak')}
+            ${docChip('Ustek', j.dok_penawaran, 'JAKON', j._id, 'dok_penawaran')}
+            ${docChip('Laporan', j.dok_laporan, 'JAKON', j._id, 'dok_laporan')}
+            ${docChip('RAB Negosiasi', j.dok_rab, 'JAKON', j._id, 'dok_rab')}
+            ${docChip('Invoice', j.dok_invoice, 'JAKON', j._id, 'dok_invoice')}
+          </div>
+          ${(function(){
+            const pic = [];
+            picStagesForBidang('JAKON').forEach(sd=>{
+              const namaUtama = j[sd.utama.namaField];
+              const emailUtama = j[sd.utama.emailField];
+              const waUtama = j[sd.utama.waField];
+              if(namaUtama || emailUtama || waUtama){
+                pic.push([sd.stageKey+'_utama', sd.label+' Utama', emailUtama, waUtama, namaUtama, null]);
+              }
+              const lanjutanList = Array.isArray(j[sd.lanjutanListField]) ? j[sd.lanjutanListField] : [];
+              lanjutanList.forEach((p, idx)=>{
+                if(!p) return;
+                pic.push([sd.stageKey+'_lanjutan', sd.label+' Lanjutan', p.email, p.wa, p.nama, idx]);
+              });
+            });
+            if(!pic.length) return '';
+            return `<div class="k">PIC Pekerjaan <span style="text-transform:none;color:var(--muted);">(klik "Kirim Pesan" utk notif langsung ke PIC)</span></div>
+              <div class="pic-list">
+                ${pic.map(([type,label,email,wa,nama,ljIdx])=>`
+                  <div class="pic-row">
+                    <span class="pic-label">${esc(label)}${nama? ' · '+esc(nama) : ''}</span>
+                    <span class="pic-email">${email? '✉ '+esc(email): ''}${email&&wa?' &middot; ':''}${wa? '💬 '+esc(wa): ''}</span>
+                    <button type="button" class="btn btn-sm" data-pic-send data-bidang="JAKON" data-id="${esc(j._id)}" data-pic-type="${type}" ${ljIdx!=null?`data-pic-lj-idx="${ljIdx}"`:''}>Kirim Pesan</button>
+                  </div>`).join('')}
+              </div>`;
+          })()}
         </div>
       </div>
       ${j.catatan ? `<div class="note-box"><b>Catatan:</b> ${esc(j.catatan)}</div>` : ''}
       ${catatanUpdateListHTML(j)}
+      ${(j.personil && j.personil.length) ? `
+      <div class="k" style="margin-top:16px;">Personil (${j.personil.length})</div>
+      <div class="table-scroll">
+      <table class="personil">
+        <thead><tr><th>Nama</th><th>Jabatan pada Kontrak</th><th>Nilai Pembayaran</th><th>Alamat</th></tr></thead>
+        <tbody>
+          ${j.personil.map(p=>`<tr>
+            <td>${esc(p.nama)||'–'}</td>
+            <td>${esc(p.jabatan)||'–'}</td>
+            <td class="nilai">${fmtIDR(p.nilai_pembayaran)}</td>
+            <td style="max-width:280px;">${esc(p.alamat)||'–'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>` : ''}
     </div>
   </details>`;
 }
@@ -7898,18 +7967,6 @@ function renderContent(){
   if(activeTab === 'PERSONIL'){
     el.innerHTML = renderPersonilDir(searchTerm);
     rc.textContent = `${DERIVED.personilMap.size} personil terdaftar`;
-    return;
-  }
-  if(activeTab === 'JAKON'){
-    let list = DERIVED.jakonJobs;
-    if(searchTerm){
-      const t = searchTerm.toLowerCase();
-      list = list.filter(j=> (j.nama_pekerjaan||'').toLowerCase().includes(t) || (j.perusahaan||'').toLowerCase().includes(t));
-    }
-    if(!list.length){ el.innerHTML = `<div class="empty">Tidak ada data JAKON yang cocok.</div>`; rc.textContent='0 hasil'; return; }
-    el.innerHTML = list.map(renderJakonCard).join('')
-      + `<div class="note-box" style="margin-top:12px;">JAKON berisi kegiatan bimbingan teknis/non-fisik dengan skema Modal &amp; Profit tersendiri — belum melacak personil per-orang seperti bidang lain.</div>`;
-    rc.textContent = `${list.length} kegiatan`;
     return;
   }
 
@@ -8270,14 +8327,20 @@ const DOC_NOTE_HTML = `<div class="fieldset-title">Kelengkapan Dokumen</div>
 const JAKON_FIELD_GROUPS = [
   {title:'Info Umum', fields:[
     {key:'nama_pekerjaan', label:'Nama Pekerjaan', type:'text', required:true, full:true},
-    {key:'perusahaan', label:'Perusahaan / Status', type:'text'},
-  ]},
-  {title:'Nilai', fields:[
+    {key:'perusahaan', label:'Perusahaan (Bendera)', type:'text'},
+    {key:'status_ringkas', label:'Status Pekerjaan', type:'select', options:OPT_RINGKAS},
     {key:'nilai_pagu', label:'Nilai Pagu (Rp)', type:'number'},
     {key:'nilai_diterima', label:'Nilai Diterima (Rp)', type:'number'},
-    {key:'modal', label:'Modal (Rp)', type:'number'},
-    {key:'profit', label:'Profit (Rp)', type:'number'},
-    {key:'persen_pct', label:'Margin (%)', type:'number'},
+    {key:'progres', label:'Catatan Progres (bebas, opsional)', type:'text', full:true},
+  ]},
+  {title:'Administrasi Kontrak', fields:[
+    {key:'no_spk', label:'No. SPK', type:'text'},
+    {key:'tanggal_spk', label:'Tanggal SPK', type:'date'},
+    {key:'no_spmk', label:'No. SPMK', type:'text'},
+    {key:'tanggal_mulai', label:'Tanggal Mulai', type:'date'},
+    {key:'tanggal_akhir', label:'Tanggal Akhir', type:'date'},
+    {key:'hari_kerja', label:'Hari Kerja', type:'text'},
+    {key:'status_waktu', label:'Status Waktu Kerja', type:'select', options:OPT_WAKTU},
   ]},
   {title:'Timeline', fields:[
     {key:'tl_lpse', label:'LPSE (Pengadaan)', type:'date'},
@@ -8287,6 +8350,14 @@ const JAKON_FIELD_GROUPS = [
     {key:'tl_penagihan', label:'Penagihan', type:'date'},
     {key:'tl_pencairan', label:'Pencairan', type:'date'},
   ]},
+  {title:'Status Pekerjaan (Detail)', fields:[
+    {key:'status_data_pekerjaan', label:'Data Pekerjaan', type:'select', options:OPT_DATA},
+    {key:'status_pencairan', label:'Pencairan', type:'select', options:OPT_PENCAIRAN},
+    {key:'status_print', label:'Print', type:'select', options:OPT_PRINT},
+    {key:'status_kirim', label:'Kirim', type:'select', options:OPT_KIRIM},
+  ]},
+];
+const JAKON_FIELD_GROUPS_CATATAN = [
   {title:'Catatan', fields:[
     {key:'catatan', label:'Catatan', type:'textarea', full:true},
   ]},
@@ -9117,7 +9188,6 @@ function openCompanyModal(name){
 
 function handleAddClick(){
   if(!canEdit()){ showToast('Kamu cuma punya akses lihat-saja (Viewer) — hubungi Admin untuk isi/edit data.', true); return; }
-  if(activeTab==='JAKON'){ addOrEditJakon(null); return; }
   if(STANDARD_BIDANG.includes(activeTab)){ addOrEditStandardJob(activeTab, null); return; }
   showModal({
     title: 'Pilih Bidang Pekerjaan',
@@ -9127,7 +9197,7 @@ function handleAddClick(){
     </select></div>`,
     onSubmit: async (form)=>{
       const b = form.querySelector('[data-field="bidang_pick"]').value;
-      if(b==='JAKON') addOrEditJakon(null); else addOrEditStandardJob(b, null);
+      addOrEditStandardJob(b, null);
       return true;
     }
   });
@@ -9155,7 +9225,6 @@ function downloadCSV(filename, headers, rows){
   }catch(e){ showToast('Gagal unduh CSV: '+e.message, true); }
 }
 function personilExportLabel(){
-  if(activeTab==='JAKON') return null;
   if(activeTab==='PERSONIL') return '⭳ Unduh Rincian Tenaga Ahli (.csv)';
   return `⭳ Unduh Personil Bidang ${BIDANG_LABEL[activeTab]} (.csv)`;
 }
@@ -9325,7 +9394,7 @@ document.addEventListener('click', (e)=>{
   if(editBtn){
     const bidang = editBtn.dataset.bidang, id = editBtn.dataset.id;
     const job = findJob(bidang, id);
-    if(bidang==='JAKON') addOrEditJakon(job); else addOrEditStandardJob(bidang, job);
+    addOrEditStandardJob(bidang, job);
     return;
   }
   const delBtn = e.target.closest('[data-del-job]');
