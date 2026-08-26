@@ -9186,6 +9186,16 @@ function openCompanyModal(name){
         kode: row.querySelector('[data-sbu-field="kode"]').value.trim(),
         tahun_berakhir: row.querySelector('[data-sbu-field="tahun_berakhir"]').value.trim()
       })).filter(s=> s.kode || s.tahun_berakhir);
+      // jaring pengaman: kalau ada link yang udah diisi tapi lupa diklik "+ Tambah dari Link", tetep kesimpen pas Simpan utama diklik
+      const pendingLink = form.querySelector('#company-link-input');
+      if(pendingLink && pendingLink.value.trim()){
+        const pendingName = form.querySelector('#company-link-name-input');
+        rec.files.push({
+          id: 'cf' + Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+          fileName: (pendingName && pendingName.value.trim()) || pendingLink.value.trim(), fileType: null, fileSize: 0,
+          uploadedAt: new Date().toISOString(), fileData: null, fileRef: null, url: pendingLink.value.trim(),
+        });
+      }
       await saveState();
       renderPerusahaanView();
       renderSbuAlerts();
