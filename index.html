@@ -234,6 +234,21 @@ h1,h2,h3,.display{ font-family: 'Space Grotesk', sans-serif; }
 .cal-count.amber{ background:var(--amber); }
 .cal-count.gray{ background:var(--muted); }
 .cal-legend{ display:flex; gap:16px; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px dashed #d7e0e6; font-size:11.5px; color:var(--muted); justify-content:center; }
+
+/* ---------- SBU summary boxes ---------- */
+.sbu-summary-boxes{ display:flex; gap:14px; flex-wrap:wrap; }
+.sbu-summary-box{
+  flex:1; min-width:160px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+  padding:20px 16px; border-radius:var(--radius-lg); border:1.5px solid; cursor:pointer; background:#fff;
+  font-family:'Inter',sans-serif; transition: transform .12s ease, box-shadow .12s ease;
+}
+.sbu-summary-box:hover{ transform:translateY(-2px); box-shadow:var(--shadow-lg); }
+.sbu-summary-box.tone-red{ border-color:#f0c3c0; background:var(--red-bg); }
+.sbu-summary-box.tone-amber{ border-color:#f0d69c; background:var(--amber-bg); }
+.sbu-summary-count{ font-family:'IBM Plex Mono',monospace; font-size:28px; font-weight:800; line-height:1; }
+.sbu-summary-box.tone-red .sbu-summary-count{ color:var(--red); }
+.sbu-summary-box.tone-amber .sbu-summary-count{ color:var(--amber); }
+.sbu-summary-label{ font-size:12.5px; font-weight:600; color:var(--ink); }
 .cal-legend span{ display:flex; align-items:center; gap:6px; }
 
 /* ---------- Ringkasan notification banner ---------- */
@@ -6321,6 +6336,8 @@ const firebaseConfig = {
 };
 let fbAuth = null, fbDb = null, fbUnsubscribe = null;
 let isApplyingRemoteUpdate = false;
+let openModalCount = 0;
+let pendingRemoteState = null;
 let firebaseReady = false;
 let appStarted = false;
 
@@ -6344,6 +6361,16 @@ function updateSyncStatus(state){
   else if(state==='offline'){ el.textContent = '🟡 Offline (data lokal)'; el.className='sync-status offline'; }
   else { el.textContent = ''; el.className='sync-status'; }
 }
+function applyRemoteState(remote){
+  isApplyingRemoteUpdate = true;
+  STATE = remote;
+  normalizeState();
+  computeCurrentRole().then(()=>{
+    renderAll();
+    isApplyingRemoteUpdate = false;
+    updateSyncStatus('online');
+  });
+}
 function setupFirestoreSync(){
   if(!fbDb) return;
   const docRef = fbDb.collection('dashboard').doc('state');
@@ -6353,13 +6380,12 @@ function setupFirestoreSync(){
       return;
     }
     const remote = snap.data();
-    isApplyingRemoteUpdate = true;
-    STATE = remote;
-    normalizeState();
-    await computeCurrentRole();
-    renderAll();
-    isApplyingRemoteUpdate = false;
-    updateSyncStatus('online');
+    if(openModalCount > 0){
+      // ada form yang lagi diisi/diedit -- tunda dulu, jangan sampe formnya "kepisah" dari data & bikin isian ilang pas disimpan
+      pendingRemoteState = remote;
+      return;
+    }
+    applyRemoteState(remote);
   }, (err)=>{
     console.warn('Firestore sync error:', err);
     updateSyncStatus('offline');
@@ -6514,8 +6540,8 @@ function openCatatanUpdateModal(bidang, id){
       if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
       job.catatan_update.push({text, at: new Date().toISOString(), by: nama || currentUserDisplayName()});
       if(nama) saveLastUsedCatatanName(nama);
-      await afterMutate();
-      showToast('Update pekerjaan ditambahkan.');
+      const saved = await afterMutate();
+      showToast(saved ? 'Update pekerjaan ditambahkan.' : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
       return true;
     }
   });
@@ -6523,9 +6549,9 @@ function openCatatanUpdateModal(bidang, id){
     btn.addEventListener('click', async ()=>{
       const idx = Number(btn.dataset.cuDelIdx);
       job.catatan_update.splice(idx,1);
-      await afterMutate();
+      const saved = await afterMutate();
       modal.remove();
-      showToast('Update dihapus.');
+      showToast(saved ? 'Update dihapus.' : 'Gagal menyimpan penghapusan — cek koneksi & coba lagi.', !saved);
     });
   });
 }
@@ -6544,7 +6570,7 @@ async function loadState(){
   return null;
 }
 async function saveState(){
-  if(isApplyingRemoteUpdate) return; // jangan nulis balik pas lagi nerapin update dari device lain
+  if(isApplyingRemoteUpdate) return true; // jangan nulis balik pas lagi nerapin update dari device lain
   let cloudOk = false, cloudErr = null;
   try{
     if(fbDb && fbAuth && fbAuth.currentUser){
@@ -6578,6 +6604,7 @@ async function saveState(){
     flashSaveIndicator('Auto-save gagal (' + detail + ') — pakai "Ekspor Data" untuk backup', true);
   }
   updateUnsavedBanner();
+  return cloudOk || localOk; // penting: pemanggil HARUS cek ini sebelum bilang "berhasil disimpan" ke user
 }
 
 function flashSaveIndicator(msg, warn){
@@ -6601,7 +6628,7 @@ window.addEventListener('beforeunload', (e)=>{
 });
 
 async function afterMutate(){
-  await saveState();
+  const saved = await saveState();
   computeDerived();
   renderKPIs();
   renderChart();
@@ -6620,6 +6647,7 @@ async function afterMutate(){
   renderUmumView();
   renderAksesView();
   applyRoleUI();
+  return saved;
 }
 
 /* ================= Derived aggregates ================= */
@@ -6951,8 +6979,29 @@ function renderSbuAlerts(){
   const alerts = getSbuAlerts();
   if(!alerts.length){ card.hidden = true; list.innerHTML=''; return; }
   card.hidden = false;
-  list.innerHTML = `<div class="reminder-list">
-    ${alerts.map(a=>`
+  const expired = alerts.filter(a=>a.tone==='red');
+  const soon = alerts.filter(a=>a.tone==='amber');
+  list.innerHTML = `<div class="sbu-summary-boxes">
+    ${expired.length ? `<button type="button" class="sbu-summary-box tone-red" data-sbu-group="expired">
+      <span class="sbu-summary-count">${expired.length}</span>
+      <span class="sbu-summary-label">Terlambat</span>
+    </button>` : ''}
+    ${soon.length ? `<button type="button" class="sbu-summary-box tone-amber" data-sbu-group="soon">
+      <span class="sbu-summary-count">${soon.length}</span>
+      <span class="sbu-summary-label">Segera Berakhir</span>
+    </button>` : ''}
+  </div>`;
+  list.querySelectorAll('[data-sbu-group]').forEach(box=>{
+    box.addEventListener('click', ()=>{
+      const group = box.dataset.sbuGroup === 'expired' ? expired : soon;
+      const title = box.dataset.sbuGroup === 'expired' ? 'SBU Terlambat Diperbarui' : 'SBU Segera Berakhir';
+      showSbuGroupModal(group, title);
+    });
+  });
+}
+function showSbuGroupModal(group, title){
+  const bodyHTML = `<div class="reminder-list">
+    ${group.map(a=>`
       <div class="reminder-row" data-jump-company="${esc(a.company)}">
         <span class="badge ${a.tone} reminder-primary-badge">${a.tone==='red'?'Kadaluarsa':'Segera Berakhir'}</span>
         <div class="reminder-info">
@@ -6961,8 +7010,10 @@ function renderSbuAlerts(){
         </div>
       </div>`).join('')}
   </div>`;
-  list.querySelectorAll('[data-jump-company]').forEach(row=>{
+  const modal = showModal({ title: `${title} (${group.length})`, bodyHTML, viewOnly: true });
+  modal.querySelectorAll('[data-jump-company]').forEach(row=>{
     row.addEventListener('click', ()=>{
+      modal.remove();
       activeView='PERUSAHAAN'; renderMainNav(); showView();
       setTimeout(()=> openCompanyModal(row.dataset.jumpCompany), 30);
     });
@@ -7369,8 +7420,8 @@ async function saveUmumSettings(){
   const templateId = document.getElementById('umum-templateid').value.trim();
   if(!STATE.__meta) STATE.__meta = {idCounter:0};
   STATE.__meta.emailjs = { publicKey: publicKey||null, serviceId: serviceId||null, templateId: templateId||null };
-  await afterMutate();
-  showToast('Pengaturan EmailJS disimpan.');
+  const saved = await afterMutate();
+  showToast(saved ? 'Pengaturan EmailJS disimpan.' : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
 }
 async function sendTestEmail(){
   if(!canDelete()){ showToast('Cuma Admin yang bisa mengakses pengaturan ini.', true); return; }
@@ -7439,8 +7490,8 @@ async function saveEmailListFromPage(){
   valid.forEach(r=>{ const key = (r.email||'')+'|'+(r.whatsapp||''); if(!seen.has(key)){ seen.add(key); unique.push(r); } });
   if(!STATE.__meta) STATE.__meta = {idCounter:0};
   STATE.__meta.adminEmails = unique;
-  await afterMutate();
-  showToast(invalidEmails.length ? `Disimpan. Format email tidak valid dilewati: ${invalidEmails.join(', ')}` : 'Daftar kontak admin disimpan.', !!invalidEmails.length);
+  const saved = await afterMutate();
+  showToast(!saved ? 'Gagal menyimpan — cek koneksi & coba lagi.' : (invalidEmails.length ? `Disimpan. Format email tidak valid dilewati: ${invalidEmails.join(', ')}` : 'Daftar kontak admin disimpan.'), !saved || !!invalidEmails.length);
 }
 function roleRowHTML(entry, idx){
   entry = entry || {};
@@ -7509,10 +7560,10 @@ async function saveAksesListFromPage(){
   valid.forEach(r=>{ const key = r.email.trim().toLowerCase(); if(!seen.has(key)){ seen.add(key); unique.push(r); } });
   if(!STATE.__meta) STATE.__meta = {idCounter:0};
   STATE.__meta.userRoles = unique;
-  await afterMutate();
+  const saved = await afterMutate();
   await computeCurrentRole();
   renderAll();
-  showToast(invalidEmails.length ? `Disimpan. Format email tidak valid dilewati: ${invalidEmails.join(', ')}` : 'Daftar akses tim disimpan.', !!invalidEmails.length);
+  showToast(!saved ? 'Gagal menyimpan — cek koneksi & coba lagi.' : (invalidEmails.length ? `Disimpan. Format email tidak valid dilewati: ${invalidEmails.join(', ')}` : 'Daftar akses tim disimpan.'), !saved || !!invalidEmails.length);
 }
 function buildBulkReminderMessage(list){
   const lines = list.map(({job:j, alerts})=>{
@@ -8427,7 +8478,16 @@ function showModal({title, bodyHTML, onSubmit, submitLabel, viewOnly}){
       </form>
     </div>`;
   document.body.appendChild(backdrop);
-  const close = ()=> backdrop.remove();
+  openModalCount++;
+  const close = ()=> {
+    backdrop.remove();
+    openModalCount = Math.max(0, openModalCount-1);
+    if(openModalCount===0 && pendingRemoteState){
+      const toApply = pendingRemoteState;
+      pendingRemoteState = null;
+      applyRemoteState(toApply);
+    }
+  };
   backdrop.querySelector('.modal-close').addEventListener('click', close);
   backdrop.querySelector('#modal-cancel').addEventListener('click', close);
   backdrop.addEventListener('click', e=>{ if(e.target===backdrop) close(); });
@@ -8531,8 +8591,8 @@ function addOrEditStandardJob(bidang, job){
         const idx = STATE[bidang].findIndex(j=>j._id===job._id);
         if(idx>-1) STATE[bidang][idx] = target;
       }
-      await afterMutate();
-      showToast(isNew ? 'Pekerjaan baru ditambahkan.' : 'Perubahan disimpan.');
+      const saved = await afterMutate();
+      showToast(saved ? (isNew ? 'Pekerjaan baru ditambahkan.' : 'Perubahan disimpan.') : 'Gagal menyimpan — cek koneksi internet, jangan tutup dulu, lalu coba Simpan lagi.', !saved);
       return true;
     }
   });
@@ -8561,8 +8621,8 @@ function addOrEditJakon(job){
         const idx = STATE['JAKON'].findIndex(j=>j._id===job._id);
         if(idx>-1) STATE['JAKON'][idx] = target;
       }
-      await afterMutate();
-      showToast(isNew ? 'Kegiatan JAKON ditambahkan.' : 'Perubahan disimpan.');
+      const saved = await afterMutate();
+      showToast(saved ? (isNew ? 'Kegiatan JAKON ditambahkan.' : 'Perubahan disimpan.') : 'Gagal menyimpan — cek koneksi internet & coba lagi.', !saved);
       return true;
     }
   });
@@ -8869,8 +8929,8 @@ function openDocModal(bidang, id, field, fieldLabel){
         };
       }
       else { job[field] = label; }
-      await afterMutate();
-      showToast('Dokumen diperbarui.');
+      const saved = await afterMutate();
+      showToast(saved ? 'Dokumen diperbarui.' : 'Gagal menyimpan — cek koneksi internet & coba lagi.', !saved);
       return true;
     }
   });
@@ -8956,10 +9016,10 @@ function openPicFormModal({name, onSaved, onCancel}){
       if(!STATE.__pics) STATE.__pics = {};
       STATE.__pics[finalName] = {email: email||null, wa: wa||null};
       cancelled = false;
-      await saveState();
+      const saved = await saveState();
       computeDerived();
       renderPicView();
-      showToast(isNew ? 'PIC baru ditambahkan.' : 'Detail PIC disimpan.');
+      showToast(saved ? (isNew ? 'PIC baru ditambahkan.' : 'Detail PIC disimpan.') : 'Gagal menyimpan — cek koneksi internet & coba lagi.', !saved);
       if(onSaved) onSaved(finalName);
       return true;
     }
@@ -8975,10 +9035,10 @@ function openPicFormModal({name, onSaved, onCancel}){
       if(!confirm(`Hapus PIC "${name}" dari direktori?`)) return;
       delete STATE.__pics[name];
       cancelled = false;
-      await saveState();
+      const saved = await saveState();
       computeDerived();
       renderPicView();
-      showToast('PIC dihapus.');
+      showToast(saved ? 'PIC dihapus.' : 'Gagal menyimpan penghapusan — cek koneksi & coba lagi.', !saved);
       modal.remove();
     });
     footer.insertBefore(delBtn, footer.firstChild);
@@ -9196,10 +9256,10 @@ function openCompanyModal(name){
           uploadedAt: new Date().toISOString(), fileData: null, fileRef: null, url: pendingLink.value.trim(),
         });
       }
-      await saveState();
+      const saved = await saveState();
       renderPerusahaanView();
       renderSbuAlerts();
-      showToast('Detail perusahaan disimpan.');
+      showToast(saved ? 'Detail perusahaan disimpan.' : 'Gagal menyimpan ke penyimpanan — cek koneksi internet, lalu coba Simpan lagi (jangan tutup dulu).', !saved);
       return true;
     }
   });
@@ -9220,10 +9280,10 @@ function openCompanyModal(name){
       uploadedAt: new Date().toISOString(), fileData: null, fileRef: null, url: linkVal,
     };
     rec.files.push(newFile);
-    await saveState();
+    const saved = await saveState();
     refreshFileList();
     nameInput.value = ''; linkInput.value = '';
-    showToast('Link dokumen ditambahkan.');
+    showToast(saved ? 'Link dokumen ditambahkan.' : 'Gagal menyimpan link — cek koneksi & coba lagi.', !saved);
   });
 
   const addSbuBtn = modal.querySelector('#add-sbu-btn');
@@ -9251,9 +9311,9 @@ function openCompanyModal(name){
       if(!canDelete()){ showToast('Cuma Admin yang bisa menghapus dokumen.', true); return; }
       if(!confirm('Hapus dokumen ini?')) return;
       rec.files = rec.files.filter(x=>x.id!==delBtn.dataset.delCfile);
-      await saveState();
+      const saved = await saveState();
       refreshFileList();
-      showToast('Dokumen dihapus.');
+      showToast(saved ? 'Dokumen dihapus.' : 'Gagal menyimpan penghapusan — cek koneksi & coba lagi.', !saved);
     }
   });
 
@@ -9295,10 +9355,10 @@ function openCompanyModal(name){
         newFile.fileData = dataUrl;
       }
       rec.files.push(newFile);
-      await saveState();
+      const saved = await saveState();
       refreshFileList();
       fileInput.value = '';
-      showToast('Dokumen diunggah.');
+      showToast(saved ? 'Dokumen diunggah.' : 'Berkas terupload tapi gagal disimpan ke data perusahaan — cek koneksi & coba lagi.', !saved);
     }catch(e){ showToast('Gagal membaca berkas: '+e.message, true); }
   });
 }
