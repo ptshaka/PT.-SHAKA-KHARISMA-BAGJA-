@@ -405,6 +405,16 @@ table.personil .nilai{ font-family:'IBM Plex Mono',monospace; white-space:nowrap
 .note-box{
   margin-top:12px; padding:9px 12px; background:#fff7ec; border:1px solid #f0dcb8; border-radius:2px; font-size:12.5px; color:#7a5a1c;
 }
+.catatan-update-list, .catatan-update-history{ display:flex; flex-direction:column; gap:6px; margin-top:4px; }
+.catatan-update-item{
+  background:var(--paper); border:1px solid #e6ecf0; border-left:3px solid var(--blue); border-radius:2px; padding:7px 10px;
+}
+.catatan-update-item .cu-text{ font-size:12.5px; color:var(--ink); white-space:pre-wrap; }
+.catatan-update-item .cu-meta{
+  font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); margin-top:4px;
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+}
+.cu-del{ background:none; border:none; color:var(--red); cursor:pointer; font-size:14px; line-height:1; }
 .pic-list{ display:flex; flex-direction:column; gap:6px; margin-top:2px; }
 .pic-row{
   display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 9px; background:var(--paper); border:1px solid #e6ecf0; border-radius:2px; font-size:12px;
@@ -6426,6 +6436,81 @@ function applyRoleUI(){
     roleEl.textContent = 'Akses: ' + (ROLE_LABEL[CURRENT_ROLE]||CURRENT_ROLE) + emailPart;
   }
 }
+function currentUserDisplayName(){
+  if(!fbAuth || !fbAuth.currentUser) return null;
+  const email = fbAuth.currentUser.email;
+  const entry = findRoleEntry(email);
+  return (entry && entry.nama) ? entry.nama : email;
+}
+function fmtDateTime(iso){
+  if(!iso) return '–';
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return iso;
+  return `${d.getDate().toString().padStart(2,'0')} ${BULAN[d.getMonth()]} ${d.getFullYear()}, ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+}
+
+/* ================= Catatan Update Pekerjaan (bisa diisi semua role, termasuk Viewer) ================= */
+function catatanUpdateListHTML(j){
+  const list = Array.isArray(j.catatan_update) ? j.catatan_update : [];
+  if(!list.length) return '';
+  const sorted = list.slice().sort((a,b)=> (b.at||'').localeCompare(a.at||''));
+  return `<div class="k" style="margin-top:16px;">Update Pekerjaan (${list.length})</div>
+    <div class="catatan-update-list">
+      ${sorted.map(u=> `<div class="catatan-update-item">
+        <div class="cu-text">${esc(u.text)}</div>
+        <div class="cu-meta"><span>${fmtDateTime(u.at)}${u.by? ' &middot; '+esc(u.by):''}</span></div>
+      </div>`).join('')}
+    </div>`;
+}
+function openCatatanUpdateModal(bidang, id){
+  const job = findJob(bidang, id);
+  if(!job) return;
+  const list = Array.isArray(job.catatan_update) ? job.catatan_update : [];
+  const sorted = list.map((u,i)=> Object.assign({}, u, {__idx:i})).sort((a,b)=> (b.at||'').localeCompare(a.at||''));
+  const historyHTML = sorted.length ? `
+    <div class="field">
+      <label>Riwayat Update</label>
+      <div class="catatan-update-history">
+        ${sorted.map(u=> `<div class="catatan-update-item">
+          <div class="cu-text">${esc(u.text)}</div>
+          <div class="cu-meta">
+            <span>${fmtDateTime(u.at)}${u.by? ' &middot; '+esc(u.by):''}</span>
+            ${canDelete() ? `<button type="button" class="cu-del" data-cu-del-idx="${u.__idx}" title="Hapus update ini">&times;</button>` : ''}
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>` : `<div class="note-box" style="margin-top:0;">Belum ada update untuk pekerjaan ini.</div>`;
+  const bodyHTML = `
+    ${historyHTML}
+    <div class="field" style="margin-top:12px;">
+      <label>Tambah Update Baru</label>
+      <textarea id="catatan-update-input" placeholder="mis. Sudah di-follow up, tinggal nunggu berkasnya"></textarea>
+    </div>
+  `;
+  const modal = showModal({
+    title: `Update Pekerjaan — ${job.nama_pekerjaan||'(tanpa nama)'}`,
+    submitLabel: 'Tambah Update',
+    bodyHTML,
+    onSubmit: async ()=>{
+      const text = modal.querySelector('#catatan-update-input').value.trim();
+      if(!text){ showToast('Isi dulu catatan update-nya.', true); return false; }
+      if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
+      job.catatan_update.push({text, at: new Date().toISOString(), by: currentUserDisplayName()});
+      await afterMutate();
+      showToast('Update pekerjaan ditambahkan.');
+      return true;
+    }
+  });
+  modal.querySelectorAll('[data-cu-del-idx]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const idx = Number(btn.dataset.cuDelIdx);
+      job.catatan_update.splice(idx,1);
+      await afterMutate();
+      modal.remove();
+      showToast('Update dihapus.');
+    });
+  });
+}
 
 async function loadState(){
   try{
@@ -7576,6 +7661,7 @@ function renderJobCard(j){
     <div class="job-body">
       <div class="job-actions">
         <button type="button" class="btn btn-sm" data-edit-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-min-role="editor">✎ Edit Pekerjaan</button>
+        <button type="button" class="btn btn-sm" data-catatan-update data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}">🗨 Update Catatan</button>
         <button type="button" class="btn btn-sm btn-danger" data-del-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-min-role="admin">🗑 Hapus</button>
       </div>
       <div class="grid-2">
@@ -7646,6 +7732,7 @@ function renderJobCard(j){
         </div>
       </div>
       ${j.catatan ? `<div class="note-box"><b>Catatan:</b> ${esc(j.catatan)}</div>` : ''}
+      ${catatanUpdateListHTML(j)}
       ${(j.personil && j.personil.length) ? `
       <div class="k" style="margin-top:16px;">Personil (${j.personil.length})</div>
       <div class="table-scroll">
@@ -7690,6 +7777,7 @@ function renderJakonCard(j){
     <div class="job-body">
       <div class="job-actions">
         <button type="button" class="btn btn-sm" data-edit-job data-bidang="JAKON" data-id="${esc(j._id)}" data-min-role="editor">✎ Edit Kegiatan</button>
+        <button type="button" class="btn btn-sm" data-catatan-update data-bidang="JAKON" data-id="${esc(j._id)}">🗨 Update Catatan</button>
         <button type="button" class="btn btn-sm btn-danger" data-del-job data-bidang="JAKON" data-id="${esc(j._id)}" data-min-role="admin">🗑 Hapus</button>
       </div>
       <div class="grid-2">
@@ -7714,6 +7802,7 @@ function renderJakonCard(j){
         </div>
       </div>
       ${j.catatan ? `<div class="note-box"><b>Catatan:</b> ${esc(j.catatan)}</div>` : ''}
+      ${catatanUpdateListHTML(j)}
     </div>
   </details>`;
 }
@@ -9195,6 +9284,11 @@ document.addEventListener('click', (e)=>{
   const docBtn = e.target.closest('[data-doc-field]');
   if(docBtn){
     openDocModal(docBtn.dataset.bidang, docBtn.dataset.id, docBtn.dataset.field, docBtn.dataset.label);
+    return;
+  }
+  const catUpdateBtn = e.target.closest('[data-catatan-update]');
+  if(catUpdateBtn){
+    openCatatanUpdateModal(catUpdateBtn.dataset.bidang, catUpdateBtn.dataset.id);
     return;
   }
   const editBtn = e.target.closest('[data-edit-job]');
