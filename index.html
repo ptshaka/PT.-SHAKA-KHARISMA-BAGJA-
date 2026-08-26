@@ -213,7 +213,7 @@ h1,h2,h3,.display{ font-family: 'Space Grotesk', sans-serif; }
 .calendar-month-label{ font-family:'Space Grotesk',sans-serif; font-weight:700; color:var(--navy); font-size:13px; }
 .cal-weekdays{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; margin-bottom:4px; width:100%; }
 .cal-weekdays div{ text-align:center; font-size:9px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.02em; }
-.cal-days{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; width:100%; }
+.cal-days{ display:grid; grid-template-columns:repeat(7,1fr); grid-auto-rows:34px; gap:2px; width:100%; }
 .cal-cell{
   height:34px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
   border-radius:5px; font-size:9px; color:var(--ink); position:relative; border:1px solid transparent; box-sizing:border-box;
@@ -6915,6 +6915,15 @@ function showCalendarDayModal(items, day, monthName, year){
 
 /* ================= Notifikasi Ringkasan (H-0 / H-1) ================= */
 /* ================= Pengingat SBU Kadaluarsa ================= */
+function extractYear(text){
+  if(!text) return NaN;
+  const s = String(text).trim();
+  // cari pola tahun 4 digit (misal "2027") di mana pun dalam teksnya, biar aman walau isinya tanggal lengkap ("21 Januari 2027")
+  const match = s.match(/\b(19|20)\d{2}\b/);
+  if(match) return parseInt(match[0], 10);
+  const n = parseInt(s, 10);
+  return n;
+}
 function getSbuAlerts(){
   const alerts = [];
   const currentYear = new Date().getFullYear();
@@ -6922,7 +6931,7 @@ function getSbuAlerts(){
   Object.keys(companies).forEach(name=>{
     const rec = companies[name];
     (rec.sbu_list||[]).forEach(sbu=>{
-      const year = parseInt(sbu.tahun_berakhir);
+      const year = extractYear(sbu.tahun_berakhir);
       if(isNaN(year)) return;
       if(year < currentYear){
         alerts.push({company:name, text:`SBU ${sbu.kode||'(tanpa kode)'} — sudah kadaluarsa sejak ${year}`, tone:'red', y:year});
@@ -8586,18 +8595,30 @@ function fmtBytes(n){
 /* ================= Penyimpanan berkas terpisah (biar dokumen utama tetap kecil di Firestore) ================= */
 function newFileRef(){ return 'f' + Date.now() + '_' + Math.random().toString(36).slice(2,8); }
 const FILE_CHUNK_SIZE = 700000; // ~700KB per potongan, aman di bawah batas 1MB Firestore per dokumen
-async function saveFileToCloud(fileRef, dataUrl){
+function delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
+async function saveFileToCloud(fileRef, dataUrl, onProgress){
   if(!fbDb || !fbAuth || !fbAuth.currentUser) return false;
-  try{
-    const totalChunks = Math.ceil(dataUrl.length / FILE_CHUNK_SIZE) || 1;
-    for(let i=0; i<totalChunks; i++){
-      const chunk = dataUrl.slice(i*FILE_CHUNK_SIZE, (i+1)*FILE_CHUNK_SIZE);
-      await fbDb.collection('dashboard_files').doc(`${fileRef}_c${i}`).set({ data: chunk });
+  const totalChunks = Math.ceil(dataUrl.length / FILE_CHUNK_SIZE) || 1;
+  for(let i=0; i<totalChunks; i++){
+    const chunk = dataUrl.slice(i*FILE_CHUNK_SIZE, (i+1)*FILE_CHUNK_SIZE);
+    let ok = false;
+    for(let attempt=1; attempt<=3 && !ok; attempt++){
+      try{
+        await fbDb.collection('dashboard_files').doc(`${fileRef}_c${i}`).set({ data: chunk });
+        ok = true;
+      }catch(e){
+        console.warn(`Gagal upload potongan ${i+1}/${totalChunks} (percobaan ${attempt}/3):`, e);
+        if(attempt<3) await delay(800*attempt); // jeda sebelum coba lagi, makin lama makin panjang
+      }
     }
-    // manifest ditulis PALING TERAKHIR — kalau upload kepotong di tengah, manifest belum ada jadi nggak dianggap "berhasil" tapi cacat
+    if(!ok) return false; // 3x gagal terus -> nyerah, jangan lanjut ke potongan berikutnya
+    if(onProgress) onProgress(i+1, totalChunks);
+  }
+  // manifest ditulis PALING TERAKHIR — kalau upload kepotong di tengah, manifest belum ada jadi nggak dianggap "berhasil" tapi cacat
+  try{
     await fbDb.collection('dashboard_files').doc(fileRef).set({ chunkCount: totalChunks });
     return true;
-  }catch(e){ console.warn('Gagal upload berkas ke cloud:', e); return false; }
+  }catch(e){ console.warn('Gagal tulis manifest berkas:', e); return false; }
 }
 async function loadFileFromCloud(fileRef){
   if(!fbDb) return null;
@@ -8860,9 +8881,20 @@ function openDocModal(bidang, id, field, fieldLabel){
       if(fbDb && fbAuth && fbAuth.currentUser){
         const fileRef = newFileRef();
         showToast(`Mengupload berkas ke cloud (${fmtBytes(f.size)})…`);
-        const ok = await saveFileToCloud(fileRef, dataUrl);
-        if(ok){ workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: null, fileRef}; showToast('Berkas berhasil diupload ke cloud.'); }
-        else { workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: dataUrl, fileRef: null}; showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true); }
+        const ok = await saveFileToCloud(fileRef, dataUrl, (done, total)=>{
+          if(total>3) showToast(`Mengupload… (${done}/${total} potongan)`);
+        });
+        if(ok){
+          workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: null, fileRef};
+          showToast('Berkas berhasil diupload ke cloud.');
+        } else if(f.size <= 2*1024*1024){
+          workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: dataUrl, fileRef: null};
+          showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true);
+        } else {
+          showToast(`Gagal upload "${f.name}" ke cloud dan berkas ini (${fmtBytes(f.size)}) kegedean buat disimpan lokal — nanti bisa bikin data lain ikut gagal tersimpan. Cek koneksi internet, terus coba upload lagi.`, true);
+          fileInput.value = '';
+          return;
+        }
       } else {
         workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: dataUrl, fileRef: null};
       }
@@ -8979,12 +9011,15 @@ function renderPicView(){
 function getCompanyDetail(name){
   if(!STATE.__companies) STATE.__companies = {};
   if(!STATE.__companies[name]){
-    STATE.__companies[name] = {direktur:'', npwp:'', nik_direktur:'', alamat:'', sbu_list:[], files:[], status:'aktif', statusReason:''};
+    STATE.__companies[name] = {direktur:'', npwp:'', nik_direktur:'', alamat:'', bank_nama:'', bank_norek:'', bank_atas_nama:'', sbu_list:[], files:[], status:'aktif', statusReason:''};
   }
   const rec = STATE.__companies[name];
   if(!Array.isArray(rec.files)) rec.files = [];
   if(!rec.status) rec.status = 'aktif';
   if(rec.statusReason===undefined) rec.statusReason = '';
+  if(rec.bank_nama===undefined) rec.bank_nama = '';
+  if(rec.bank_norek===undefined) rec.bank_norek = '';
+  if(rec.bank_atas_nama===undefined) rec.bank_atas_nama = '';
   if(!Array.isArray(rec.sbu_list)){
     // migrasi dari format lama (satu SBU)
     rec.sbu_list = (rec.sbu_kode || rec.sbu_tahun_berakhir) ? [{kode: rec.sbu_kode||'', tahun_berakhir: rec.sbu_tahun_berakhir||''}] : [];
@@ -9046,6 +9081,13 @@ function openCompanyModal(name){
       <div class="field"><label>NIK Direktur</label><div style="font-size:13.5px;padding:4px 0;">${rec.nik_direktur? esc(rec.nik_direktur):'–'}</div></div>
       <div class="field"><label>Alamat Perusahaan</label><div style="font-size:13.5px;padding:4px 0;">${rec.alamat? esc(rec.alamat):'–'}</div></div>
 
+      <div class="fieldset-title">Rekening Bank</div>
+      <div class="field-grid">
+        <div class="field"><label>Nama Bank</label><div style="font-size:13.5px;padding:4px 0;">${rec.bank_nama? esc(rec.bank_nama):'–'}</div></div>
+        <div class="field"><label>No. Rekening</label><div style="font-size:13.5px;padding:4px 0;">${rec.bank_norek? esc(rec.bank_norek):'–'}</div></div>
+      </div>
+      <div class="field"><label>Atas Nama</label><div style="font-size:13.5px;padding:4px 0;">${rec.bank_atas_nama? esc(rec.bank_atas_nama):'–'}</div></div>
+
       <div class="fieldset-title">Informasi SBU (Sertifikat Badan Usaha)</div>
       ${rec.sbu_list.length ? rec.sbu_list.map(s=>`<div style="font-size:13.5px;padding:4px 0;">${esc(s.kode||'–')} · berakhir ${esc(s.tahun_berakhir||'–')}</div>`).join('') : `<div style="color:var(--muted); font-size:12px;">Belum ada SBU ditambahkan.</div>`}
 
@@ -9080,6 +9122,13 @@ function openCompanyModal(name){
     <div class="field"><label>NIK Direktur</label><input type="text" data-field="nik_direktur" value="${esc(rec.nik_direktur)}"></div>
     <div class="field"><label>Alamat Perusahaan</label><textarea data-field="alamat">${esc(rec.alamat)}</textarea></div>
 
+    <div class="fieldset-title">Rekening Bank</div>
+    <div class="field-grid">
+      <div class="field"><label>Nama Bank</label><input type="text" data-field="bank_nama" value="${esc(rec.bank_nama)}" placeholder="mis. BCA, Mandiri, BRI"></div>
+      <div class="field"><label>No. Rekening</label><input type="text" data-field="bank_norek" value="${esc(rec.bank_norek)}"></div>
+    </div>
+    <div class="field"><label>Atas Nama</label><input type="text" data-field="bank_atas_nama" value="${esc(rec.bank_atas_nama)}"></div>
+
     <div class="fieldset-title">Informasi SBU (Sertifikat Badan Usaha)</div>
     <div id="sbu-list-wrap">${sbuListHTML(rec)}</div>
     <button type="button" class="btn btn-sm" id="add-sbu-btn" style="margin-bottom:4px;">+ Tambah SBU</button>
@@ -9104,6 +9153,9 @@ function openCompanyModal(name){
       rec.npwp = form.querySelector('[data-field="npwp"]').value.trim();
       rec.nik_direktur = form.querySelector('[data-field="nik_direktur"]').value.trim();
       rec.alamat = form.querySelector('[data-field="alamat"]').value.trim();
+      rec.bank_nama = form.querySelector('[data-field="bank_nama"]').value.trim();
+      rec.bank_norek = form.querySelector('[data-field="bank_norek"]').value.trim();
+      rec.bank_atas_nama = form.querySelector('[data-field="bank_atas_nama"]').value.trim();
       rec.sbu_list = Array.from(form.querySelectorAll('.sbu-row')).map(row=>({
         kode: row.querySelector('[data-sbu-field="kode"]').value.trim(),
         tahun_berakhir: row.querySelector('[data-sbu-field="tahun_berakhir"]').value.trim()
@@ -9171,9 +9223,20 @@ function openCompanyModal(name){
       if(fbDb && fbAuth && fbAuth.currentUser){
         showToast(`Mengupload berkas ke cloud (${fmtBytes(f.size)})…`);
         const fileRef = newFileRef();
-        const ok = await saveFileToCloud(fileRef, dataUrl);
-        if(ok){ newFile.fileRef = fileRef; showToast('Berkas berhasil diupload ke cloud.'); }
-        else { newFile.fileData = dataUrl; showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true); }
+        const ok = await saveFileToCloud(fileRef, dataUrl, (done, total)=>{
+          if(total>3) showToast(`Mengupload… (${done}/${total} potongan)`);
+        });
+        if(ok){
+          newFile.fileRef = fileRef;
+          showToast('Berkas berhasil diupload ke cloud.');
+        } else if(f.size <= 2*1024*1024){
+          newFile.fileData = dataUrl;
+          showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true);
+        } else {
+          showToast(`Gagal upload "${f.name}" ke cloud dan berkas ini (${fmtBytes(f.size)}) kegedean buat disimpan lokal — nanti bisa bikin data lain ikut gagal tersimpan. Cek koneksi internet, terus coba upload lagi.`, true);
+          fileInput.value = '';
+          return;
+        }
       } else {
         newFile.fileData = dataUrl;
       }
