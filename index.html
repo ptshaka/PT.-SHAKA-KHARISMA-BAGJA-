@@ -6462,6 +6462,12 @@ function catatanUpdateListHTML(j){
       </div>`).join('')}
     </div>`;
 }
+function lastUsedCatatanName(){
+  try{ return window.localStorage.getItem('catatan_update_nama') || ''; }catch(e){ return ''; }
+}
+function saveLastUsedCatatanName(name){
+  try{ window.localStorage.setItem('catatan_update_nama', name); }catch(e){ /* abaikan kalau localStorage nggak tersedia */ }
+}
 function openCatatanUpdateModal(bidang, id){
   const job = findJob(bidang, id);
   if(!job) return;
@@ -6480,9 +6486,14 @@ function openCatatanUpdateModal(bidang, id){
         </div>`).join('')}
       </div>
     </div>` : `<div class="note-box" style="margin-top:0;">Belum ada update untuk pekerjaan ini.</div>`;
+  const defaultName = lastUsedCatatanName() || currentUserDisplayName() || '';
   const bodyHTML = `
     ${historyHTML}
     <div class="field" style="margin-top:12px;">
+      <label>Nama Kamu</label>
+      <input type="text" id="catatan-update-nama" value="${esc(defaultName)}" placeholder="mis. Yuda">
+    </div>
+    <div class="field">
       <label>Tambah Update Baru</label>
       <textarea id="catatan-update-input" placeholder="mis. Sudah di-follow up, tinggal nunggu berkasnya"></textarea>
     </div>
@@ -6494,8 +6505,10 @@ function openCatatanUpdateModal(bidang, id){
     onSubmit: async ()=>{
       const text = modal.querySelector('#catatan-update-input').value.trim();
       if(!text){ showToast('Isi dulu catatan update-nya.', true); return false; }
+      const nama = modal.querySelector('#catatan-update-nama').value.trim();
       if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
-      job.catatan_update.push({text, at: new Date().toISOString(), by: currentUserDisplayName()});
+      job.catatan_update.push({text, at: new Date().toISOString(), by: nama || currentUserDisplayName()});
+      if(nama) saveLastUsedCatatanName(nama);
       await afterMutate();
       showToast('Update pekerjaan ditambahkan.');
       return true;
