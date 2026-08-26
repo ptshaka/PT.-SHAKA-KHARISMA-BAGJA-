@@ -8514,18 +8514,35 @@ function fmtBytes(n){
 }
 /* ================= Penyimpanan berkas terpisah (biar dokumen utama tetap kecil di Firestore) ================= */
 function newFileRef(){ return 'f' + Date.now() + '_' + Math.random().toString(36).slice(2,8); }
+const FILE_CHUNK_SIZE = 700000; // ~700KB per potongan, aman di bawah batas 1MB Firestore per dokumen
 async function saveFileToCloud(fileRef, dataUrl){
   if(!fbDb || !fbAuth || !fbAuth.currentUser) return false;
   try{
-    await fbDb.collection('dashboard_files').doc(fileRef).set({ data: dataUrl });
+    const totalChunks = Math.ceil(dataUrl.length / FILE_CHUNK_SIZE) || 1;
+    for(let i=0; i<totalChunks; i++){
+      const chunk = dataUrl.slice(i*FILE_CHUNK_SIZE, (i+1)*FILE_CHUNK_SIZE);
+      await fbDb.collection('dashboard_files').doc(`${fileRef}_c${i}`).set({ data: chunk });
+    }
+    // manifest ditulis PALING TERAKHIR — kalau upload kepotong di tengah, manifest belum ada jadi nggak dianggap "berhasil" tapi cacat
+    await fbDb.collection('dashboard_files').doc(fileRef).set({ chunkCount: totalChunks });
     return true;
   }catch(e){ console.warn('Gagal upload berkas ke cloud:', e); return false; }
 }
 async function loadFileFromCloud(fileRef){
   if(!fbDb) return null;
   try{
-    const snap = await fbDb.collection('dashboard_files').doc(fileRef).get();
-    return snap.exists ? snap.data().data : null;
+    const manifestSnap = await fbDb.collection('dashboard_files').doc(fileRef).get();
+    if(!manifestSnap.exists) return null;
+    const manifest = manifestSnap.data();
+    if(manifest.data) return manifest.data; // kompatibel sama berkas lama (format 1 dokumen, sebelum dipecah)
+    const n = manifest.chunkCount || 0;
+    let full = '';
+    for(let i=0; i<n; i++){
+      const chunkSnap = await fbDb.collection('dashboard_files').doc(`${fileRef}_c${i}`).get();
+      if(!chunkSnap.exists){ console.warn('Potongan berkas hilang:', fileRef, i); return null; }
+      full += chunkSnap.data().data;
+    }
+    return full;
   }catch(e){ console.warn('Gagal ambil berkas dari cloud:', e); return null; }
 }
 async function resolveFileData(fileObj){
@@ -8771,7 +8788,7 @@ function openDocModal(bidang, id, field, fieldLabel){
       const dataUrl = await readFileAsDataURL(f);
       if(fbDb && fbAuth && fbAuth.currentUser){
         const fileRef = newFileRef();
-        showToast('Mengupload berkas ke cloud…');
+        showToast(`Mengupload berkas ke cloud (${fmtBytes(f.size)})…`);
         const ok = await saveFileToCloud(fileRef, dataUrl);
         if(ok){ workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: null, fileRef}; showToast('Berkas berhasil diupload ke cloud.'); }
         else { workingFile = {fileName: f.name, fileType: f.type || 'application/octet-stream', fileData: dataUrl, fileRef: null}; showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true); }
@@ -9081,7 +9098,7 @@ function openCompanyModal(name){
         uploadedAt: new Date().toISOString(), fileData: null, fileRef: null,
       };
       if(fbDb && fbAuth && fbAuth.currentUser){
-        showToast('Mengupload berkas ke cloud…');
+        showToast(`Mengupload berkas ke cloud (${fmtBytes(f.size)})…`);
         const fileRef = newFileRef();
         const ok = await saveFileToCloud(fileRef, dataUrl);
         if(ok){ newFile.fileRef = fileRef; showToast('Berkas berhasil diupload ke cloud.'); }
