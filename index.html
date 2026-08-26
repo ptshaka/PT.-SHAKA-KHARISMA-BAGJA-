@@ -6201,14 +6201,15 @@ table.jakon td.actions{ white-space:nowrap; }
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
 <script>
 const RAW = JSON.parse(document.getElementById('raw-data').textContent);
-const BIDANG_ORDER = ['BANGUNAN GEDUNG','JALAN','DRAINASE','IRIGASI','JAKON'];
-const STANDARD_BIDANG = ['BANGUNAN GEDUNG','JALAN','DRAINASE','IRIGASI'];
+const BIDANG_ORDER = ['BANGUNAN GEDUNG','JALAN','DRAINASE','IRIGASI','JAKON','LUAR DINAS'];
+const STANDARD_BIDANG = ['BANGUNAN GEDUNG','JALAN','DRAINASE','IRIGASI','LUAR DINAS'];
 const BIDANG_LABEL = {
   'BANGUNAN GEDUNG':'Bangunan Gedung',
   'JALAN':'Jalan',
   'DRAINASE':'Drainase',
   'IRIGASI':'Irigasi / SDA',
-  'JAKON':'Jasa Konstruksi'
+  'JAKON':'Jasa Konstruksi',
+  'LUAR DINAS':'Luar Dinas'
 };
 const STORAGE_KEY = 'pekerjaan-2026-state';
 
@@ -6624,7 +6625,7 @@ function renderKPIs(){
 function renderChart(){
   const BIDANG_COLOR = {
     'BANGUNAN GEDUNG': '#1c5686', 'JALAN': '#0e2740', 'DRAINASE': '#2b7fb8',
-    'IRIGASI': '#0a3d5c', 'JAKON': '#e2610c',
+    'IRIGASI': '#0a3d5c', 'JAKON': '#e2610c', 'LUAR DINAS': '#5b8c3e',
   };
   const rows = BIDANG_ORDER.map(b=>{
     const jobs = b==='JAKON' ? DERIVED.jakonJobs : DERIVED.allJobs.filter(j=>j.bidang===b);
@@ -7496,6 +7497,7 @@ const TABS = [
   {key:'DRAINASE', label:'Bidang Drainase'},
   {key:'IRIGASI', label:'Bidang Irigasi/SDA'},
   {key:'JAKON', label:'Bidang Jasa Konstruksi'},
+  {key:'LUAR DINAS', label:'Luar Dinas'},
   {key:'PERSONIL', label:'Rincian Tenaga Ahli'},
 ];
 let activeTab = 'BANGUNAN GEDUNG';
