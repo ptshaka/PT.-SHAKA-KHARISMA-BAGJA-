@@ -8531,7 +8531,13 @@ function showModal({title, bodyHTML, onSubmit, submitLabel, viewOnly}){
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const ok = await onSubmit(form);
-    if(ok !== false) close();
+    if(ok !== false){
+      // penting: buang APAPUN yang nyangkut ("pendingRemoteState") persis sebelum modal ditutup —
+      // nggak peduli itu data lama atau gema dari tulisan kita sendiri, biar nggak ada celah waktu
+      // sekecil apapun yang bisa nimpa balik editan yang baru aja berhasil disimpan.
+      pendingRemoteState = null;
+      close();
+    }
   });
   return backdrop;
 }
