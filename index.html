@@ -6371,6 +6371,13 @@ function applyRemoteState(remote){
     updateSyncStatus('online');
   });
 }
+/* ================= Hapus field eksplisit di Firestore (soalnya mode merge nggak otomatis ngerti "hapus") ================= */
+async function deleteCloudField(dotPath){
+  if(!fbDb || !fbAuth || !fbAuth.currentUser) return;
+  try{
+    await fbDb.collection('dashboard').doc('state').update({ [dotPath]: firebase.firestore.FieldValue.delete() });
+  }catch(e){ console.warn('Gagal hapus field di cloud:', dotPath, e); }
+}
 function setupFirestoreSync(){
   if(!fbDb) return;
   const docRef = fbDb.collection('dashboard').doc('state');
@@ -6574,7 +6581,9 @@ async function saveState(){
   let cloudOk = false, cloudErr = null;
   try{
     if(fbDb && fbAuth && fbAuth.currentUser){
-      await fbDb.collection('dashboard').doc('state').set(STATE);
+      // {merge:true} penting banget: kalau device lain masih pakai versi kode lama yang belum kenal field tertentu
+      // (mis. __pics, __companies, atau bidang baru), field itu nggak akan ketimpa kosong pas device itu nyimpen.
+      await fbDb.collection('dashboard').doc('state').set(STATE, { merge: true });
       cloudOk = true;
     } else if(fbDb){
       cloudErr = 'belum login (sesi terputus)';
@@ -6592,6 +6601,7 @@ async function saveState(){
 
   if(cloudOk){
     hasUnsavedChanges = false;
+    pendingRemoteState = null; // tulisan kita barusan udah jadi yang terbaru — buang antrian data lama biar nggak nimpa balik
     flashSaveIndicator('Tersimpan & sinkron ke tim', false);
     updateSyncStatus('online');
   } else if(localOk){
@@ -9035,6 +9045,7 @@ function openPicFormModal({name, onSaved, onCancel}){
       if(!confirm(`Hapus PIC "${name}" dari direktori?`)) return;
       delete STATE.__pics[name];
       cancelled = false;
+      await deleteCloudField(`__pics.${name}`); // hapus eksplisit dulu (mode merge biasa nggak ngerti "hapus")
       const saved = await saveState();
       computeDerived();
       renderPicView();
