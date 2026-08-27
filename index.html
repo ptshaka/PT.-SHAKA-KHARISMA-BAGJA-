@@ -8080,11 +8080,39 @@ function personilEditorHTML(list){
 }
 
 /* ---- Rincian Potongan / Biaya (mengurangi Nilai Pagu -> otomatis isi Nilai Diterima) ---- */
+function getPotonganCategories(){
+  if(!STATE.__meta) STATE.__meta = {};
+  if(!Array.isArray(STATE.__meta.potonganCategories)){
+    // seed dari data yang UDAH ADA (biar konsisten sama gaya penulisan yang dipakai selama ini), baru fallback ke daftar umum
+    const found = new Set();
+    STANDARD_BIDANG.concat(['JAKON']).forEach(b=>{
+      (STATE[b]||[]).forEach(j=>{
+        (j.potongan||[]).forEach(p=>{ if(p && p.label) found.add(p.label); });
+      });
+    });
+    const defaults = ['PPN','PPh','Fee Bendera','Fee Tenaga Ahli','Fee Tenaga Pendukung','Pajak Tenaga Ahli','Biaya Keuangan','TTD Penagihan'];
+    defaults.forEach(d=>{ if(![...found].some(f=>f.toLowerCase()===d.toLowerCase())) found.add(d); });
+    STATE.__meta.potonganCategories = [...found];
+  }
+  return STATE.__meta.potonganCategories;
+}
+function potonganCategoryOptionsHTML(selected){
+  const cats = getPotonganCategories();
+  let opts = `<option value="" ${!selected?'selected':''}>— Pilih kategori —</option>`;
+  if(selected && !cats.includes(selected)){
+    opts += `<option value="${esc(selected)}" selected>${esc(selected)}</option>`;
+  }
+  cats.forEach(c=>{
+    opts += `<option value="${esc(c)}" ${selected===c?'selected':''}>${esc(c)}</option>`;
+  });
+  opts += `<option value="__new__">+ Tambah Kategori Baru…</option>`;
+  return opts;
+}
 function potonganRowHTML(p, idx){
   p = p || {};
   return `<div class="prow" data-potongan-row="${idx}">
     <button type="button" class="prow-remove" data-remove-potongan-row title="Hapus potongan ini">&times;</button>
-    <input data-pot="label" value="${esc(p.label||'')}" placeholder="Keterangan (mis. PPh, PPN, Biaya Admin)">
+    <select data-pot="label">${potonganCategoryOptionsHTML(p.label||'')}</select>
     <input data-pot="nilai" type="number" step="any" value="${p.nilai??''}" placeholder="Nilai potongan (Rp)">
   </div>`;
 }
@@ -8525,6 +8553,23 @@ function showModal({title, bodyHTML, onSubmit, submitLabel, viewOnly}){
   form.addEventListener('input', e=>{
     if(e.target.matches('[data-pot="nilai"]') || e.target.matches('[data-field="nilai_pagu"]')){
       recalcNilaiDiterima(form);
+    }
+  });
+  form.addEventListener('change', async (e)=>{
+    if(e.target.matches('[data-pot="label"]') && e.target.value === '__new__'){
+      const newCat = prompt('Nama kategori potongan baru (mis. Fee Marketing):');
+      const trimmed = newCat ? newCat.trim() : '';
+      if(trimmed){
+        const cats = getPotonganCategories();
+        if(!cats.some(c=>c.toLowerCase()===trimmed.toLowerCase())) cats.push(trimmed);
+        await saveState(); // simpen kategori barunya duluan biar langsung kepakai tim, nggak nunggu form ini di-Simpan
+        form.querySelectorAll('[data-pot="label"]').forEach(sel=>{
+          const cur = sel===e.target ? trimmed : sel.value;
+          sel.innerHTML = potonganCategoryOptionsHTML(cur==='__new__' ? '' : cur);
+        });
+      } else {
+        e.target.value = '';
+      }
     }
   });
   if(form.querySelector('[data-potongan-editor]')) updatePotonganPreview(form);
