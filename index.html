@@ -6310,7 +6310,7 @@ let STATE = null;
 let DERIVED = {};
 
 function seedFromRaw(){
-  const s = { __meta: { idCounter: 0, adminEmails: [], userRoles: [] }, __companies: {}, __pics: {} };
+  const s = { __meta: { idCounter: 0, adminEmails: [], userRoles: {} }, __companies: {}, __pics: {} };
   BIDANG_ORDER.forEach(b=>{
     s[b] = (RAW[b]||[]).map(job=>{
       const clone = JSON.parse(JSON.stringify(job));
@@ -6372,11 +6372,14 @@ function applyRemoteState(remote){
   });
 }
 /* ================= Hapus field eksplisit di Firestore (soalnya mode merge nggak otomatis ngerti "hapus") ================= */
-async function deleteCloudField(dotPath){
+async function deleteCloudField(pathSegments){
+  // PENTING: pathSegments itu ARRAY per-bagian (bukan string titik-titik), soalnya kalau bagiannya email
+  // (ada titik di dalamnya, kayak "nama@domain.com") gampang salah kepotong kalau ditulis pakai titik biasa.
   if(!fbDb || !fbAuth || !fbAuth.currentUser) return;
   try{
-    await fbDb.collection('dashboard').doc('state').update({ [dotPath]: firebase.firestore.FieldValue.delete() });
-  }catch(e){ console.warn('Gagal hapus field di cloud:', dotPath, e); }
+    const fieldPath = new firebase.firestore.FieldPath(...pathSegments);
+    await fbDb.collection('dashboard').doc('state').update(fieldPath, firebase.firestore.FieldValue.delete());
+  }catch(e){ console.warn('Gagal hapus field di cloud:', pathSegments, e); }
 }
 function setupFirestoreSync(){
   if(!fbDb) return;
@@ -6387,8 +6390,9 @@ function setupFirestoreSync(){
       return;
     }
     const remote = snap.data();
-    if(openModalCount > 0){
-      // ada form yang lagi diisi/diedit -- tunda dulu, jangan sampe formnya "kepisah" dari data & bikin isian ilang pas disimpan
+    const onSensitiveEditPage = (activeView==='EMAIL' || activeView==='PENGATURAN');
+    if(openModalCount > 0 || onSensitiveEditPage){
+      // ada form/halaman yang lagi diisi/diedit -- tunda dulu, jangan sampe formnya "kepisah" dari data & bikin isian ilang pas disimpan
       pendingRemoteState = remote;
       return;
     }
@@ -6441,20 +6445,34 @@ function canDelete(){ return roleRank(CURRENT_ROLE) >= ROLE_RANK.admin; }
 function isAdminRole(){ return CURRENT_ROLE === 'admin'; }
 function findRoleEntry(email){
   if(!email) return null;
-  const list = (STATE && STATE.__meta && STATE.__meta.userRoles) || [];
+  if(!STATE || !STATE.__meta) return null;
+  migrateUserRolesToMap();
   const target = email.trim().toLowerCase();
-  return list.find(r=> r && r.email && r.email.trim().toLowerCase()===target) || null;
+  return STATE.__meta.userRoles[target] || null;
+}
+function migrateUserRolesToMap(){
+  // konversi format lama (array) -> kamus per-email, biar dapet perlindungan sinkron yang sama kayak PIC/Perusahaan
+  if(!STATE.__meta) STATE.__meta = {idCounter:0};
+  if(Array.isArray(STATE.__meta.userRoles)){
+    const map = {};
+    STATE.__meta.userRoles.forEach(r=>{
+      if(r && r.email) map[r.email.trim().toLowerCase()] = {email: r.email, nama: r.nama||null, role: r.role||'viewer'};
+    });
+    STATE.__meta.userRoles = map;
+  } else if(!STATE.__meta.userRoles || typeof STATE.__meta.userRoles !== 'object'){
+    STATE.__meta.userRoles = {};
+  }
 }
 async function computeCurrentRole(){
   if(!fbDb || !fbAuth || !fbAuth.currentUser){ CURRENT_ROLE = 'admin'; return; } // mode lokal tanpa login: akses penuh
   if(!STATE.__meta) STATE.__meta = {idCounter:0};
-  if(!Array.isArray(STATE.__meta.userRoles)) STATE.__meta.userRoles = [];
+  migrateUserRolesToMap();
   const email = fbAuth.currentUser.email;
   const entry = findRoleEntry(email);
   if(entry){ CURRENT_ROLE = ROLE_RANK[entry.role]!==undefined ? entry.role : 'viewer'; return; }
-  if(STATE.__meta.userRoles.length===0){
+  if(Object.keys(STATE.__meta.userRoles).length===0){
     // belum ada siapa pun di daftar akses — orang pertama yang login otomatis jadi admin
-    STATE.__meta.userRoles.push({email, nama:null, role:'admin'});
+    STATE.__meta.userRoles[email.trim().toLowerCase()] = {email, nama:null, role:'admin'};
     CURRENT_ROLE = 'admin';
     try{ await saveState(); }catch(e){ console.warn(e); }
     setTimeout(()=> showToast('Kamu otomatis jadi Admin pertama dashboard ini.'), 300);
@@ -7431,6 +7449,7 @@ async function saveUmumSettings(){
   if(!STATE.__meta) STATE.__meta = {idCounter:0};
   STATE.__meta.emailjs = { publicKey: publicKey||null, serviceId: serviceId||null, templateId: templateId||null };
   const saved = await afterMutate();
+  if(saved) pendingRemoteState = null; // buang data lama yg mungkin nyangkut, biar nggak nimpa balik pengaturan yg baru disimpan
   showToast(saved ? 'Pengaturan EmailJS disimpan.' : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
 }
 async function sendTestEmail(){
@@ -7520,7 +7539,8 @@ function roleRowHTML(entry, idx){
 function renderAksesView(){
   const box = document.getElementById('akses-list-card');
   if(!box) return;
-  const roles = ((STATE.__meta && STATE.__meta.userRoles) || []);
+  migrateUserRolesToMap();
+  const roles = Object.values(STATE.__meta.userRoles || {});
   box.innerHTML = `
     <p style="font-size:12.5px;color:var(--muted);margin:0 0 14px;">Atur level akses tiap akun tim di sini — <b>email di bawah harus sama persis dengan email yang dipakai buat login</b> di layar Masuk. Akun yang belum terdaftar di sini otomatis kebagian akses <b>Viewer</b> (lihat-saja) begitu mereka login.</p>
     <div class="personil-editor" id="akses-editor-page">
@@ -7550,6 +7570,8 @@ function handleAksesListClick(e){
 }
 async function saveAksesListFromPage(){
   if(!canDelete()){ showToast('Cuma Admin yang bisa mengubah daftar akses.', true); return; }
+  migrateUserRolesToMap();
+  const oldEmails = new Set(Object.keys(STATE.__meta.userRoles || {}));
   const box = document.getElementById('akses-list-card');
   const rows = box.querySelectorAll('#akses-editor-page .prow');
   const raw = [...rows].map(row=>({
@@ -7566,11 +7588,19 @@ async function saveAksesListFromPage(){
   if(myEmail && !valid.some(r=> r.email.trim().toLowerCase()===myEmail && r.role==='admin')){
     if(!confirm('Kamu mau menyimpan daftar akses tanpa akunmu sendiri sebagai Admin. Kamu bisa kehilangan akses Admin setelah ini. Lanjutkan?')) return;
   }
-  const seen = new Set(); const unique = [];
-  valid.forEach(r=>{ const key = r.email.trim().toLowerCase(); if(!seen.has(key)){ seen.add(key); unique.push(r); } });
+  const newMap = {};
+  valid.forEach(r=>{ newMap[r.email.trim().toLowerCase()] = r; });
   if(!STATE.__meta) STATE.__meta = {idCounter:0};
-  STATE.__meta.userRoles = unique;
+  STATE.__meta.userRoles = newMap;
+
+  // akun yang tadinya ada tapi sekarang dihapus dari form -> hapus eksplisit di cloud
+  // (mode gabung/merge nggak otomatis ngerti "hapus" buat data berbentuk kamus kayak gini)
+  const newEmails = new Set(Object.keys(newMap));
+  const removed = [...oldEmails].filter(e=> !newEmails.has(e));
+  for(const email of removed){ await deleteCloudField(['__meta','userRoles',email]); }
+
   const saved = await afterMutate();
+  if(saved) pendingRemoteState = null; // buang data lama yg mungkin nyangkut, biar nggak nimpa balik daftar akses yg baru disimpan
   await computeCurrentRole();
   renderAll();
   showToast(!saved ? 'Gagal menyimpan — cek koneksi & coba lagi.' : (invalidEmails.length ? `Disimpan. Format email tidak valid dilewati: ${invalidEmails.join(', ')}` : 'Daftar akses tim disimpan.'), !saved || !!invalidEmails.length);
@@ -9096,7 +9126,7 @@ function openPicFormModal({name, onSaved, onCancel}){
       if(!confirm(`Hapus PIC "${name}" dari direktori?`)) return;
       delete STATE.__pics[name];
       cancelled = false;
-      await deleteCloudField(`__pics.${name}`); // hapus eksplisit dulu (mode merge biasa nggak ngerti "hapus")
+      await deleteCloudField(['__pics', name]); // hapus eksplisit dulu (mode merge biasa nggak ngerti "hapus")
       const saved = await saveState();
       computeDerived();
       renderPicView();
@@ -9680,7 +9710,7 @@ function normalizeState(){
   }
   STATE.__meta.adminEmails = STATE.__meta.adminEmails.map(e=> typeof e==='string' ? {nama:null, email:e} : e);
   if(!STATE.__meta.emailjs) STATE.__meta.emailjs = {publicKey:null, serviceId:null, templateId:null};
-  if(!Array.isArray(STATE.__meta.userRoles)) STATE.__meta.userRoles = [];
+  migrateUserRolesToMap();
   BIDANG_ORDER.forEach(b=>{ if(!Array.isArray(STATE[b])) STATE[b] = []; });
 }
 function renderAll(){
