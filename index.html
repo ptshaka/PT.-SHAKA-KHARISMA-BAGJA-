@@ -9583,6 +9583,7 @@ function importData(file){
         });
       });
       STATE = parsed;
+      migrateUserRolesToMap(); // penting: file backup lama formatnya array, harus dikonversi ke kamus biar cocok lagi
       await afterMutate();
       hasUnsavedChanges = false;
       updateUnsavedBanner();
@@ -9737,9 +9738,27 @@ async function startApp(){
   if(appStarted) return; // hindari jalan dobel kalau onAuthStateChanged nembak lebih dari sekali
   appStarted = true;
   document.getElementById('content').innerHTML = '<div class="loading-box">Memuat data…</div>';
-  let loaded = null;
-  try{ loaded = await loadState(); }catch(e){ console.warn(e); }
-  STATE = loaded || seedFromRaw();
+
+  if(fbDb && fbAuth && fbAuth.currentUser){
+    // PENTING: ambil data ASLI dari cloud DULU sebelum ngitung akses siapa Admin/Viewer.
+    // Kalau nggak, device baru yang belum punya cache lokal bakal ngira daftar akses masih kosong
+    // (padahal cuma belum sempet kebaca), terus otomatis ngangkat diri sendiri jadi Admin —
+    // nimpa Admin yang udah bener ada di cloud. Makanya di sini kita tunggu dulu.
+    try{
+      const snap = await fbDb.collection('dashboard').doc('state').get();
+      if(snap.exists){ STATE = snap.data(); }
+      else { STATE = seedFromRaw(); try{ await fbDb.collection('dashboard').doc('state').set(STATE); }catch(e){ console.warn('Gagal seed data awal ke cloud:', e); } }
+    }catch(e){
+      console.warn('Gagal ambil data awal dari cloud, pakai data lokal dulu:', e);
+      let loaded = null;
+      try{ loaded = await loadState(); }catch(e2){ console.warn(e2); }
+      STATE = loaded || seedFromRaw();
+    }
+  } else {
+    let loaded = null;
+    try{ loaded = await loadState(); }catch(e){ console.warn(e); }
+    STATE = loaded || seedFromRaw();
+  }
   normalizeState();
   await computeCurrentRole();
   renderAll();
