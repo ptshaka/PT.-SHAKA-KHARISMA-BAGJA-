@@ -448,6 +448,13 @@ table.personil .nilai{ font-family:'IBM Plex Mono',monospace; white-space:nowrap
 .visit-entry .ve-match{ font-size:11.5px; color:#2e9e5b; margin-bottom:6px; }
 .visit-entry .ve-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px; }
 .visit-entry select{ font-size:12.5px; padding:5px 8px; border:1px solid #dbe4ea; border-radius:2px; background:#fff; }
+.visit-news-list{ display:flex; flex-direction:column; gap:8px; }
+.visit-news-item{
+  background:var(--paper); border:1px solid #e6ecf0; border-left:3px solid var(--orange); border-radius:2px; padding:8px 12px;
+}
+.visit-news-item .vn-top{ display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:12px; font-weight:600; color:var(--navy); }
+.visit-news-item .vn-meta{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:400; color:var(--muted); white-space:nowrap; }
+.visit-news-item .vn-text{ font-size:12.5px; color:var(--ink); margin-top:4px; white-space:pre-wrap; }
 .pic-list{ display:flex; flex-direction:column; gap:6px; margin-top:2px; }
 .pic-row{
   display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 9px; background:var(--paper); border:1px solid #e6ecf0; border-radius:2px; font-size:12px;
@@ -701,6 +708,11 @@ table.jakon td.actions{ white-space:nowrap; }
       <div id="global-search-results"></div>
     </div>
 
+    <div class="view-title" id="visit-news-title"><span class="vt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s-7-6.4-7-11.5A7 7 0 0 1 19 9.5C19 14.6 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><h2>Update Terbaru dari Visit Lapangan</h2></div>
+    <div class="chart-card" id="visit-news-card" style="margin-bottom:26px;">
+      <div id="visit-news-list"></div>
+    </div>
+
     <div class="view-title"><span class="vt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><h2>Ringkasan Nilai per Bidang</h2></div>
     <div class="chart-card">
       <div id="chart"></div>
@@ -796,15 +808,6 @@ table.jakon td.actions{ white-space:nowrap; }
     <div id="content-pic"></div>
   </div>
 
-  <div id="view-visit" class="view" hidden>
-    <div class="view-title"><span class="vt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s-7-6.4-7-11.5A7 7 0 0 1 19 9.5C19 14.6 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><h2>Update dari Visit Lapangan</h2></div>
-    <div class="toolbar">
-      <div style="font-size:12.5px;color:var(--muted);flex:1;">Laporan visit dari pegawai (yang sudah mencantumkan nama proyek) muncul di sini. Cocokkan ke pekerjaan yang tepat, lalu tambahkan sebagai Update Pekerjaan.</div>
-      <button type="button" class="btn btn-sm" id="visit-refresh-btn">↻ Refresh</button>
-    </div>
-    <div id="content-visit"></div>
-  </div>
-
   <div id="view-email" class="view" hidden>
     <div class="view-title"><span class="vt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></span><h2>Daftar Email Admin</h2></div>
     <div class="chart-card" id="email-list-card"></div>
@@ -815,9 +818,17 @@ table.jakon td.actions{ white-space:nowrap; }
     <div class="subtab-row" id="pengaturan-subtabs" style="display:flex;gap:6px;margin-bottom:14px;">
       <button type="button" class="subtab-btn" data-pengaturan-tab="UMUM">Data Umum</button>
       <button type="button" class="subtab-btn" data-pengaturan-tab="AKSES">Manajemen Akses</button>
+      <button type="button" class="subtab-btn" data-pengaturan-tab="VISIT">Visit Lapangan<span id="pengaturan-visit-badge"></span></button>
     </div>
     <div class="chart-card" id="umum-card"></div>
     <div class="chart-card" id="akses-list-card"></div>
+    <div class="chart-card" id="visit-card">
+      <div class="toolbar" style="margin-bottom:10px;">
+        <div style="font-size:12.5px;color:var(--muted);flex:1;">Laporan visit dari pegawai (yang sudah mencantumkan nama proyek) muncul di sini. Cocokkan ke pekerjaan yang tepat, lalu tambahkan sebagai Update Pekerjaan.</div>
+        <button type="button" class="btn btn-sm" id="visit-refresh-btn">↻ Refresh</button>
+      </div>
+      <div id="content-visit"></div>
+    </div>
   </div>
 
 </div>
@@ -6619,6 +6630,36 @@ function openCatatanUpdateModal(bidang, id){
 }
 
 /* ================= Sinkronisasi Visit Lapangan -> Update Pekerjaan ================= */
+/* ================= Berita Update Visit Lapangan (Ringkasan) ================= */
+function getVisitNewsFeed(limit){
+  const items = [];
+  BIDANG_ORDER.forEach(bidang=>{
+    (STATE[bidang]||[]).forEach(job=>{
+      (job.catatan_update||[]).forEach(u=>{
+        if(u.by && u.by.indexOf('(Visit Lapangan)') > -1){
+          items.push({ bidang, job_nama: job.nama_pekerjaan, text: u.text, at: u.at, by: u.by });
+        }
+      });
+    });
+  });
+  items.sort((a,b)=> (b.at||'').localeCompare(a.at||''));
+  return items.slice(0, limit||8);
+}
+function renderVisitNews(){
+  const card = document.getElementById('visit-news-card');
+  const title = document.getElementById('visit-news-title');
+  const list = document.getElementById('visit-news-list');
+  if(!card || !list) return;
+  const items = getVisitNewsFeed(8);
+  if(!items.length){ card.style.display='none'; if(title) title.style.display='none'; return; }
+  card.style.display=''; if(title) title.style.display='';
+  list.innerHTML = items.map(it=> `
+    <div class="visit-news-item">
+      <div class="vn-top"><span>${esc(it.job_nama||'(tanpa nama)')} · ${esc(BIDANG_LABEL[it.bidang]||it.bidang)}</span><span class="vn-meta">${fmtDateTime(it.at)} · ${esc((it.by||'').replace(' (Visit Lapangan)',''))}</span></div>
+      <div class="vn-text">${esc(it.text)}</div>
+    </div>`).join('');
+}
+
 function findJobByBidangNama(bidang, nama){
   if(!bidang || !nama) return null;
   const list = STATE[bidang] || [];
@@ -6630,6 +6671,10 @@ function fmtVisitDate(tgl){
   const d = new Date(tgl+'T00:00:00');
   if(isNaN(d.getTime())) return tgl;
   return `${d.getDate().toString().padStart(2,'0')} ${BULAN[d.getMonth()]} ${d.getFullYear()}`;
+}
+function updateVisitBadge(){
+  const el = document.getElementById('pengaturan-visit-badge');
+  if(el) el.innerHTML = visitPendingCount>0 ? ` <span class="nav-badge">${visitPendingCount}</span>` : '';
 }
 async function loadVisitSync(){
   const el = document.getElementById('content-visit');
@@ -6650,6 +6695,7 @@ async function loadVisitSync(){
     visitEntriesCache = data || [];
     visitPendingCount = visitEntriesCache.length;
     renderMainNav();
+    updateVisitBadge();
     renderVisitList();
   }catch(e){
     console.warn('Gagal ambil data visit lapangan:', e);
@@ -6726,6 +6772,7 @@ async function markVisitSynced(entryId){
   visitEntriesCache = visitEntriesCache.filter(e=> e.id !== entryId);
   visitPendingCount = visitEntriesCache.length;
   renderMainNav();
+  updateVisitBadge();
   renderVisitList();
 }
 async function syncVisitEntry(entryId, bidang, jobId){
@@ -6834,6 +6881,7 @@ async function afterMutate(){
   renderSbuAlerts();
   renderRingkasanNotif();
   renderGantt();
+  renderVisitNews();
   renderMainNav();
   renderTabs();
   renderContent();
@@ -7829,7 +7877,6 @@ const MAIN_NAV = [
   {key:'DAFTAR', label:'Daftar Pekerjaan', icon: ICON_LIST},
   {key:'PERUSAHAAN', label:'Mitra Perusahaan', icon: ICON_HANDSHAKE},
   {key:'PIC', label:'PIC Pekerjaan', icon: ICON_CONTACT},
-  {key:'VISIT', label:'Visit Lapangan', icon: ICON_PIN, minRole:'editor'},
   {key:'PENGATURAN', label:'Pengaturan', icon: ICON_SETTINGS, minRole:'admin'},
 ];
 function renderMainNav(){
@@ -7841,7 +7888,7 @@ function renderMainNav(){
       ${v.icon}
       ${esc(v.label)}
       ${v.key==='PENGINGAT' && reminderCount>0 ? `<span class="nav-badge">${reminderCount}</span>` : ''}
-      ${v.key==='VISIT' && visitPendingCount>0 ? `<span class="nav-badge">${visitPendingCount}</span>` : ''}
+      ${v.key==='PENGATURAN' && visitPendingCount>0 ? `<span class="nav-badge">${visitPendingCount}</span>` : ''}
     </button>`).join('')
     + `<div class="main-nav-spacer"></div>`
     + `<button class="main-nav-logout" id="main-nav-logout-btn" type="button">
@@ -7860,13 +7907,11 @@ function showView(){
   document.getElementById('view-daftar').hidden = activeView!=='DAFTAR';
   document.getElementById('view-perusahaan').hidden = activeView!=='PERUSAHAAN';
   document.getElementById('view-pic').hidden = activeView!=='PIC';
-  document.getElementById('view-visit').hidden = activeView!=='VISIT';
   document.getElementById('view-email').hidden = activeView!=='EMAIL';
   document.getElementById('view-pengaturan').hidden = activeView!=='PENGATURAN';
   if(activeView==='PENGATURAN') renderPengaturanSubtabs();
-  if(activeView==='VISIT') loadVisitSync();
 }
-let pengaturanSubTab = 'UMUM'; // 'UMUM' | 'AKSES'
+let pengaturanSubTab = 'UMUM'; // 'UMUM' | 'AKSES' | 'VISIT'
 function renderPengaturanSubtabs(){
   document.querySelectorAll('#pengaturan-subtabs [data-pengaturan-tab]').forEach(btn=>{
     const active = btn.dataset.pengaturanTab === pengaturanSubTab;
@@ -7878,6 +7923,8 @@ function renderPengaturanSubtabs(){
   });
   document.getElementById('umum-card').style.display = pengaturanSubTab==='UMUM' ? '' : 'none';
   document.getElementById('akses-list-card').style.display = pengaturanSubTab==='AKSES' ? '' : 'none';
+  document.getElementById('visit-card').style.display = pengaturanSubTab==='VISIT' ? '' : 'none';
+  if(pengaturanSubTab==='VISIT') loadVisitSync();
 }
 
 /* ================= Tabs ================= */
@@ -9913,6 +9960,7 @@ function renderAll(){
   renderSbuAlerts();
   renderRingkasanNotif();
   renderGantt();
+  renderVisitNews();
   renderMainNav();
   renderTabs();
   renderContent();
