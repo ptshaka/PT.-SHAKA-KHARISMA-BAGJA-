@@ -438,6 +438,16 @@ table.personil .nilai{ font-family:'IBM Plex Mono',monospace; white-space:nowrap
   display:flex; align-items:center; justify-content:space-between; gap:8px;
 }
 .cu-del{ background:none; border:none; color:var(--red); cursor:pointer; font-size:14px; line-height:1; }
+.visit-list{ display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+.visit-entry{
+  background:#fff; border:1px solid #e6ecf0; border-left:3px solid var(--orange); border-radius:2px; padding:10px 12px;
+}
+.visit-entry.matched{ border-left-color:#2e9e5b; }
+.visit-entry .ve-top{ display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--muted); }
+.visit-entry .ve-text{ font-size:13px; color:var(--ink); margin:6px 0; white-space:pre-wrap; }
+.visit-entry .ve-match{ font-size:11.5px; color:#2e9e5b; margin-bottom:6px; }
+.visit-entry .ve-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+.visit-entry select{ font-size:12.5px; padding:5px 8px; border:1px solid #dbe4ea; border-radius:2px; background:#fff; }
 .pic-list{ display:flex; flex-direction:column; gap:6px; margin-top:2px; }
 .pic-row{
   display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 9px; background:var(--paper); border:1px solid #e6ecf0; border-radius:2px; font-size:12px;
@@ -784,6 +794,15 @@ table.jakon td.actions{ white-space:nowrap; }
       <div class="result-count" id="result-count-pic"></div>
     </div>
     <div id="content-pic"></div>
+  </div>
+
+  <div id="view-visit" class="view" hidden>
+    <div class="view-title"><span class="vt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s-7-6.4-7-11.5A7 7 0 0 1 19 9.5C19 14.6 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><h2>Update dari Visit Lapangan</h2></div>
+    <div class="toolbar">
+      <div style="font-size:12.5px;color:var(--muted);flex:1;">Laporan visit dari pegawai (yang sudah mencantumkan nama proyek) muncul di sini. Cocokkan ke pekerjaan yang tepat, lalu tambahkan sebagai Update Pekerjaan.</div>
+      <button type="button" class="btn btn-sm" id="visit-refresh-btn">↻ Refresh</button>
+    </div>
+    <div id="content-visit"></div>
   </div>
 
   <div id="view-email" class="view" hidden>
@@ -6232,6 +6251,7 @@ table.jakon td.actions{ white-space:nowrap; }
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 const RAW = JSON.parse(document.getElementById('raw-data').textContent);
 const BIDANG_ORDER = ['BANGUNAN GEDUNG','JALAN','DRAINASE','IRIGASI','JAKON','LUAR DINAS'];
@@ -6337,6 +6357,20 @@ const firebaseConfig = {
   appId: "1:796767966444:web:8d2fbe9f57e4c6a5c841c9",
   measurementId: "G-FM39Q93XKP"
 };
+/* ================= Supabase (baca data Visit Lapangan dari sistem finance/pegawai) ================= */
+const VISIT_SUPABASE_URL = 'https://xuwxcbcxopjyllmcdwcg.supabase.co';
+const VISIT_SUPABASE_KEY = 'sb_publishable_JNnwYvTYOlXphBhBCHOS8A_RW4ibMpM';
+let visitSb = null;
+function initVisitSupabase(){
+  try{
+    if(typeof supabase === 'undefined') return false;
+    visitSb = supabase.createClient(VISIT_SUPABASE_URL, VISIT_SUPABASE_KEY);
+    return true;
+  }catch(e){ console.warn('Gagal init Supabase (visit lapangan):', e); return false; }
+}
+let visitPendingCount = 0;
+let visitEntriesCache = [];
+
 let fbAuth = null, fbDb = null, fbUnsubscribe = null;
 let isApplyingRemoteUpdate = false;
 let openModalCount = 0;
@@ -6584,6 +6618,137 @@ function openCatatanUpdateModal(bidang, id){
   });
 }
 
+/* ================= Sinkronisasi Visit Lapangan -> Update Pekerjaan ================= */
+function findJobByBidangNama(bidang, nama){
+  if(!bidang || !nama) return null;
+  const list = STATE[bidang] || [];
+  const target = nama.trim().toLowerCase();
+  return list.find(j => (j.nama_pekerjaan||'').trim().toLowerCase() === target) || null;
+}
+function fmtVisitDate(tgl){
+  if(!tgl) return '–';
+  const d = new Date(tgl+'T00:00:00');
+  if(isNaN(d.getTime())) return tgl;
+  return `${d.getDate().toString().padStart(2,'0')} ${BULAN[d.getMonth()]} ${d.getFullYear()}`;
+}
+async function loadVisitSync(){
+  const el = document.getElementById('content-visit');
+  if(!el) return;
+  if(!visitSb && !initVisitSupabase()){
+    el.innerHTML = `<div class="note-box">Gagal konek ke database Visit Lapangan. Coba refresh halaman.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="loading-box">Memuat laporan visit…</div>`;
+  try{
+    const { data, error } = await visitSb.from('survey')
+      .select('id, tanggal, keterangan, pekerjaan_bidang, pekerjaan_nama, pegawai:pegawai_id(nama)')
+      .eq('synced_ke_proyek', false)
+      .not('pekerjaan_nama', 'is', null)
+      .order('tanggal', { ascending:false })
+      .limit(200);
+    if(error) throw error;
+    visitEntriesCache = data || [];
+    visitPendingCount = visitEntriesCache.length;
+    renderMainNav();
+    renderVisitList();
+  }catch(e){
+    console.warn('Gagal ambil data visit lapangan:', e);
+    el.innerHTML = `<div class="note-box">Gagal memuat data: ${esc(e.message||String(e))}</div>`;
+  }
+}
+function jobOptionsGroupedHTML(){
+  return BIDANG_ORDER.map(bidang=>{
+    const jobs = STATE[bidang] || [];
+    if(!jobs.length) return '';
+    return `<optgroup label="${esc(BIDANG_LABEL[bidang]||bidang)}">
+      ${jobs.map(j=> `<option value="${esc(bidang)}::${esc(j._id)}">${esc(j.nama_pekerjaan||'(tanpa nama)')}</option>`).join('')}
+    </optgroup>`;
+  }).join('');
+}
+function renderVisitList(){
+  const el = document.getElementById('content-visit');
+  if(!el) return;
+  if(!visitEntriesCache.length){
+    el.innerHTML = `<div class="empty">Tidak ada laporan visit yang menunggu disinkronkan.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="visit-list">${visitEntriesCache.map(entry=>{
+    const match = findJobByBidangNama(entry.pekerjaan_bidang, entry.pekerjaan_nama);
+    const namaPegawai = (entry.pegawai && entry.pegawai.nama) || 'Pegawai';
+    return `<div class="visit-entry ${match?'matched':''}" data-entry-id="${esc(entry.id)}">
+      <div class="ve-top"><span>${fmtVisitDate(entry.tanggal)} · ${esc(namaPegawai)}</span><span>${esc(entry.pekerjaan_nama||'')}</span></div>
+      <div class="ve-text">${esc(entry.keterangan||'')}</div>
+      ${match
+        ? `<div class="ve-match">✅ Cocok dengan: ${esc(match.nama_pekerjaan)} (${esc(BIDANG_LABEL[entry.pekerjaan_bidang]||entry.pekerjaan_bidang)})</div>
+           <div class="ve-actions">
+             <button type="button" class="btn btn-sm btn-primary" data-visit-sync data-bidang="${esc(entry.pekerjaan_bidang)}" data-job-id="${esc(match._id)}">➕ Tambah ke Update</button>
+             <button type="button" class="btn btn-sm btn-ghost" data-visit-skip>Lewati</button>
+           </div>`
+        : `<div class="ve-actions">
+             <select data-visit-job-select>
+               <option value="">— pilih pekerjaan yang cocok —</option>
+               ${jobOptionsGroupedHTML()}
+             </select>
+             <button type="button" class="btn btn-sm btn-primary" data-visit-sync-manual>➕ Tambah ke Update</button>
+             <button type="button" class="btn btn-sm btn-ghost" data-visit-skip>Lewati</button>
+           </div>`
+      }
+    </div>`;
+  }).join('')}</div>`;
+
+  el.querySelectorAll('[data-visit-sync]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const wrap = btn.closest('[data-entry-id]');
+      syncVisitEntry(wrap.dataset.entryId, btn.dataset.bidang, btn.dataset.jobId);
+    });
+  });
+  el.querySelectorAll('[data-visit-sync-manual]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const wrap = btn.closest('[data-entry-id]');
+      const sel = wrap.querySelector('[data-visit-job-select]');
+      const val = sel.value;
+      if(!val){ showToast('Pilih pekerjaannya dulu.', true); return; }
+      const [bidang, jobId] = val.split('::');
+      syncVisitEntry(wrap.dataset.entryId, bidang, jobId);
+    });
+  });
+  el.querySelectorAll('[data-visit-skip]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const wrap = btn.closest('[data-entry-id]');
+      if(!confirm('Lewati laporan ini tanpa menambahkannya ke Update Pekerjaan?')) return;
+      skipVisitEntry(wrap.dataset.entryId);
+    });
+  });
+}
+async function markVisitSynced(entryId){
+  try{ await visitSb.from('survey').update({ synced_ke_proyek: true }).eq('id', entryId); }
+  catch(e){ console.warn('Gagal update status sinkron di Supabase:', e); }
+  visitEntriesCache = visitEntriesCache.filter(e=> e.id !== entryId);
+  visitPendingCount = visitEntriesCache.length;
+  renderMainNav();
+  renderVisitList();
+}
+async function syncVisitEntry(entryId, bidang, jobId){
+  const entry = visitEntriesCache.find(e=> e.id === entryId);
+  const job = findJob(bidang, jobId);
+  if(!entry || !job){ showToast('Data tidak ditemukan, coba refresh.', true); return; }
+  const namaPegawai = (entry.pegawai && entry.pegawai.nama) || 'Pegawai';
+  if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
+  job.catatan_update.push({
+    text: entry.keterangan,
+    at: new Date(entry.tanggal+'T00:00:00').toISOString(),
+    by: namaPegawai + ' (Visit Lapangan)'
+  });
+  const saved = await afterMutate();
+  showToast(saved ? 'Ditambahkan ke Update Pekerjaan ✓' : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
+  if(saved) await markVisitSynced(entryId);
+}
+async function skipVisitEntry(entryId){
+  await markVisitSynced(entryId);
+  showToast('Laporan dilewati.');
+}
+document.getElementById('visit-refresh-btn') && document.getElementById('visit-refresh-btn').addEventListener('click', loadVisitSync);
+
 async function loadState(){
   try{
     if(window.storage){
@@ -6774,6 +6939,7 @@ const ICON_SETTINGS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const ICON_LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 14.5v3"/></svg>';
 const ICON_CONTACT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9.5" cy="10.5" r="2.2"/><path d="M6.3 16.5c.5-1.9 1.7-2.9 3.2-2.9s2.7 1 3.2 2.9"/><path d="M15 9.5h3M15 13h3"/></svg>';
 const ICON_RECEIPT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 2.5h12v19l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3z"/><path d="M8.5 7h7M8.5 10.5h7M8.5 14h4.5"/></svg>';
+const ICON_PIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s-7-6.4-7-11.5A7 7 0 0 1 19 9.5C19 14.6 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
 
 function renderKPIs(){
   const el = document.getElementById('kpis');
@@ -7663,6 +7829,7 @@ const MAIN_NAV = [
   {key:'DAFTAR', label:'Daftar Pekerjaan', icon: ICON_LIST},
   {key:'PERUSAHAAN', label:'Mitra Perusahaan', icon: ICON_HANDSHAKE},
   {key:'PIC', label:'PIC Pekerjaan', icon: ICON_CONTACT},
+  {key:'VISIT', label:'Visit Lapangan', icon: ICON_PIN, minRole:'editor'},
   {key:'PENGATURAN', label:'Pengaturan', icon: ICON_SETTINGS, minRole:'admin'},
 ];
 function renderMainNav(){
@@ -7674,6 +7841,7 @@ function renderMainNav(){
       ${v.icon}
       ${esc(v.label)}
       ${v.key==='PENGINGAT' && reminderCount>0 ? `<span class="nav-badge">${reminderCount}</span>` : ''}
+      ${v.key==='VISIT' && visitPendingCount>0 ? `<span class="nav-badge">${visitPendingCount}</span>` : ''}
     </button>`).join('')
     + `<div class="main-nav-spacer"></div>`
     + `<button class="main-nav-logout" id="main-nav-logout-btn" type="button">
@@ -7692,9 +7860,11 @@ function showView(){
   document.getElementById('view-daftar').hidden = activeView!=='DAFTAR';
   document.getElementById('view-perusahaan').hidden = activeView!=='PERUSAHAAN';
   document.getElementById('view-pic').hidden = activeView!=='PIC';
+  document.getElementById('view-visit').hidden = activeView!=='VISIT';
   document.getElementById('view-email').hidden = activeView!=='EMAIL';
   document.getElementById('view-pengaturan').hidden = activeView!=='PENGATURAN';
   if(activeView==='PENGATURAN') renderPengaturanSubtabs();
+  if(activeView==='VISIT') loadVisitSync();
 }
 let pengaturanSubTab = 'UMUM'; // 'UMUM' | 'AKSES'
 function renderPengaturanSubtabs(){
