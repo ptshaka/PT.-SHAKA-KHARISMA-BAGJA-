@@ -158,6 +158,9 @@ h1,h2,h3,.display{ font-family: 'Space Grotesk', sans-serif; }
   animation: fadeUp .4s ease both;
 }
 .kpi:hover{ transform: translateY(-2px); box-shadow: 0 4px 10px rgba(14,39,64,0.1), 0 10px 24px rgba(14,39,64,0.08); }
+.kpi-clickable{ cursor:pointer; }
+.kpi-clickable:hover{ border-color: var(--orange); }
+.kpi-clickable:focus-visible{ outline: 2px solid var(--orange); outline-offset: 2px; }
 .kpi:nth-child(1){ border-top-color: var(--blue); animation-delay:.02s; }
 .kpi:nth-child(2){ border-top-color: var(--navy-2); animation-delay:.06s; }
 .kpi:nth-child(3){ border-top-color: var(--orange); animation-delay:.10s; }
@@ -6775,15 +6778,15 @@ const ICON_RECEIPT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 function renderKPIs(){
   const el = document.getElementById('kpis');
   const kpiData = [
-    {label:'Total Pekerjaan', value: DERIVED.totalPekerjaan, sub: `${STANDARD_BIDANG.length} bidang teknis + JAKON`, icon: ICON_DOC},
+    {label:'Total Pekerjaan', value: DERIVED.totalPekerjaan, sub: `${STANDARD_BIDANG.length} bidang teknis + JAKON`, icon: ICON_DOC, nav:'DAFTAR'},
     {label:'Total Nilai Pagu', value: fmtIDRCompact(DERIVED.totalNilaiPagu), full: fmtIDR(DERIVED.totalNilaiPagu), sub: 'Seluruh bidang, akumulasi pagu', icon: ICON_COIN},
     {label:'Total Nilai Diterima', value: fmtIDRCompact(DERIVED.totalNilaiDiterima), full: fmtIDR(DERIVED.totalNilaiDiterima), sub: DERIVED.pctDiterima!=null ? `${DERIVED.pctDiterima.toFixed(1)}% dari pagu (pekerjaan yg sudah terisi)` : 'Belum ada data nilai diterima', icon: ICON_WALLET},
     {label:'Pengeluaran Pemberkasan', value: fmtIDRCompact(DERIVED.totalPengeluaranPemberkasan), full: fmtIDR(DERIVED.totalPengeluaranPemberkasan), sub: 'Selisih Pagu dan Diterima (pekerjaan yang datanya lengkap)', icon: ICON_RECEIPT},
-    {label:'Perusahaan Mitra', value: DERIVED.perusahaanMap.size, sub: '"Bendera" penyedia jasa', icon: ICON_BUILDING},
-    {label:'PIC Pekerjaan', value: DERIVED.picMap.size, sub: 'Personil yang terdaftar di direktori PIC', icon: ICON_CONTACT},
+    {label:'Perusahaan Mitra', value: DERIVED.perusahaanMap.size, sub: '"Bendera" penyedia jasa', icon: ICON_BUILDING, nav:'PERUSAHAAN'},
+    {label:'PIC Pekerjaan', value: DERIVED.picMap.size, sub: 'Personil yang terdaftar di direktori PIC', icon: ICON_CONTACT, nav:'PIC'},
   ];
   el.innerHTML = kpiData.map(k=>`
-    <div class="kpi">
+    <div class="kpi${k.nav?' kpi-clickable':''}"${k.nav?` data-kpi-nav="${k.nav}" role="button" tabindex="0" title="Klik untuk buka halaman ${k.label}"`:''}>
       <div class="icon">${k.icon}</div>
       <div>
         <div class="label">${esc(k.label)}</div>
@@ -6791,6 +6794,11 @@ function renderKPIs(){
         <div class="sub">${k.full ? `<span class="mono" style="color:var(--navy); font-weight:600; font-size:12px;">${esc(k.full)}</span><br>` : ''}${esc(k.sub)}</div>
       </div>
     </div>`).join('');
+  el.querySelectorAll('[data-kpi-nav]').forEach(card=>{
+    const go = ()=>{ activeView = card.dataset.kpiNav; renderMainNav(); showView(); };
+    card.addEventListener('click', go);
+    card.addEventListener('keydown', e=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); go(); } });
+  });
 }
 function renderChart(){
   const BIDANG_COLOR = {
