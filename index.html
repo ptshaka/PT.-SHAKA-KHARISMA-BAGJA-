@@ -6702,15 +6702,6 @@ async function loadVisitSync(){
     el.innerHTML = `<div class="note-box">Gagal memuat data: ${esc(e.message||String(e))}</div>`;
   }
 }
-function jobOptionsGroupedHTML(){
-  return BIDANG_ORDER.map(bidang=>{
-    const jobs = STATE[bidang] || [];
-    if(!jobs.length) return '';
-    return `<optgroup label="${esc(BIDANG_LABEL[bidang]||bidang)}">
-      ${jobs.map(j=> `<option value="${esc(bidang)}::${esc(j._id)}">${esc(j.nama_pekerjaan||'(tanpa nama)')}</option>`).join('')}
-    </optgroup>`;
-  }).join('');
-}
 function renderVisitList(){
   const el = document.getElementById('content-visit');
   if(!el) return;
@@ -6731,11 +6722,11 @@ function renderVisitList(){
              <button type="button" class="btn btn-sm btn-ghost" data-visit-skip>Lewati</button>
            </div>`
         : `<div class="ve-actions">
-             <select data-visit-job-select>
-               <option value="">— pilih pekerjaan yang cocok —</option>
-               ${jobOptionsGroupedHTML()}
+             <select data-visit-bidang-select>
+               <option value="">— pilih bidang —</option>
+               ${BIDANG_ORDER.map(b=> `<option value="${esc(b)}">${esc(BIDANG_LABEL[b])}</option>`).join('')}
              </select>
-             <button type="button" class="btn btn-sm btn-primary" data-visit-sync-manual>➕ Tambah ke Update</button>
+             <button type="button" class="btn btn-sm btn-primary" data-visit-sync-bidang>➕ Tambah ke Update</button>
              <button type="button" class="btn btn-sm btn-ghost" data-visit-skip>Lewati</button>
            </div>`
       }
@@ -6748,14 +6739,13 @@ function renderVisitList(){
       syncVisitEntry(wrap.dataset.entryId, btn.dataset.bidang, btn.dataset.jobId);
     });
   });
-  el.querySelectorAll('[data-visit-sync-manual]').forEach(btn=>{
+  el.querySelectorAll('[data-visit-sync-bidang]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const wrap = btn.closest('[data-entry-id]');
-      const sel = wrap.querySelector('[data-visit-job-select]');
-      const val = sel.value;
-      if(!val){ showToast('Pilih pekerjaannya dulu.', true); return; }
-      const [bidang, jobId] = val.split('::');
-      syncVisitEntry(wrap.dataset.entryId, bidang, jobId);
+      const sel = wrap.querySelector('[data-visit-bidang-select]');
+      const bidang = sel.value;
+      if(!bidang){ showToast('Pilih bidangnya dulu.', true); return; }
+      syncVisitEntryByBidang(wrap.dataset.entryId, bidang);
     });
   });
   el.querySelectorAll('[data-visit-skip]').forEach(btn=>{
@@ -6774,6 +6764,28 @@ async function markVisitSynced(entryId){
   renderMainNav();
   updateVisitBadge();
   renderVisitList();
+}
+async function syncVisitEntryByBidang(entryId, bidang){
+  const entry = visitEntriesCache.find(e=> e.id === entryId);
+  if(!entry){ showToast('Data tidak ditemukan, coba refresh.', true); return; }
+  let job = findJobByBidangNama(bidang, entry.pekerjaan_nama);
+  let isNewJob = false;
+  if(!job){
+    job = { _id: newId(), no: nextJobNumber(bidang), nama_pekerjaan: entry.pekerjaan_nama, personil: [], catatan_update: [] };
+    if(!STATE[bidang]) STATE[bidang] = [];
+    STATE[bidang].push(job);
+    isNewJob = true;
+  }
+  const namaPegawai = (entry.pegawai && entry.pegawai.nama) || 'Pegawai';
+  if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
+  job.catatan_update.push({
+    text: entry.keterangan,
+    at: new Date(entry.tanggal+'T00:00:00').toISOString(),
+    by: namaPegawai + ' (Visit Lapangan)'
+  });
+  const saved = await afterMutate();
+  showToast(saved ? (isNewJob ? `Pekerjaan baru "${job.nama_pekerjaan}" dibuat & update ditambahkan ✓` : 'Ditambahkan ke Update Pekerjaan ✓') : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
+  if(saved) await markVisitSynced(entryId);
 }
 async function syncVisitEntry(entryId, bidang, jobId){
   const entry = visitEntriesCache.find(e=> e.id === entryId);
