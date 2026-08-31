@@ -833,7 +833,7 @@ table.jakon td.actions{ white-space:nowrap; }
     <div class="chart-card" id="akses-list-card"></div>
     <div class="chart-card" id="visit-card">
       <div class="toolbar" style="margin-bottom:10px;">
-        <div style="font-size:12.5px;color:var(--muted);flex:1;">Semua laporan visit pegawai yang belum di-approve muncul di sini. <strong>Nominal visit baru masuk hitungan gaji setelah di-approve</strong> (klik "Tambah ke Update" / "Setujui" / "Lewati") — jadi wajib dicek satu-satu.</div>
+        <div style="font-size:12.5px;color:var(--muted);flex:1;">Laporan visit <strong>mulai 1 September 2026</strong> yang belum di-approve muncul di sini (visit sebelum itu otomatis kehitung, nggak perlu diapa-apain). <strong>Nominal visit baru masuk hitungan gaji setelah di-approve</strong> (klik "Tambah ke Update" / "Setujui" / "Lewati").</div>
         <button type="button" class="btn btn-sm" id="visit-refresh-btn">↻ Refresh</button>
       </div>
       <div id="content-visit"></div>
@@ -6685,6 +6685,9 @@ function updateVisitBadge(){
   const el = document.getElementById('pengaturan-visit-badge');
   if(el) el.innerHTML = visitPendingCount>0 ? ` <span class="nav-badge">${visitPendingCount}</span>` : '';
 }
+// Sama seperti di index.html (finance): visit sebelum 1 Sep 2026 otomatis dianggap approved
+// (sistem approval ini baru berlaku mulai tanggal itu), jadi nggak perlu nongkrong di panel ini.
+const VISIT_APPROVAL_CUTOFF = '2026-09-01';
 async function loadVisitSync(){
   const el = document.getElementById('content-visit');
   if(!el) return;
@@ -6697,6 +6700,7 @@ async function loadVisitSync(){
     const { data, error } = await visitSb.from('survey')
       .select('id, tanggal, keterangan, pekerjaan_bidang, pekerjaan_nama, total, direvisi_at, pegawai:pegawai_id(nama)')
       .eq('synced_ke_proyek', false)
+      .gte('tanggal', VISIT_APPROVAL_CUTOFF)
       .order('tanggal', { ascending:false })
       .limit(200);
     if(error) throw error;
