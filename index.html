@@ -446,6 +446,7 @@ table.personil .nilai{ font-family:'IBM Plex Mono',monospace; white-space:nowrap
 .visit-entry .ve-top{ display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--muted); }
 .visit-entry .ve-text{ font-size:13px; color:var(--ink); margin:6px 0; white-space:pre-wrap; }
 .visit-entry .ve-match{ font-size:11.5px; color:#2e9e5b; margin-bottom:6px; }
+.visit-entry .ve-revised{ font-size:11.5px; font-weight:600; color:#2e9e5b; margin:4px 0; }
 .visit-entry .ve-comment-row{ display:flex; gap:6px; margin:6px 0; align-items:stretch; }
 .visit-entry .ve-admin-comment{
   flex:1; min-width:0; box-sizing:border-box; font-family:inherit; font-size:12.5px; color:var(--ink);
@@ -6694,7 +6695,7 @@ async function loadVisitSync(){
   el.innerHTML = `<div class="loading-box">Memuat laporan visit…</div>`;
   try{
     const { data, error } = await visitSb.from('survey')
-      .select('id, tanggal, keterangan, pekerjaan_bidang, pekerjaan_nama, total, pegawai:pegawai_id(nama)')
+      .select('id, tanggal, keterangan, pekerjaan_bidang, pekerjaan_nama, total, direvisi_at, pegawai:pegawai_id(nama)')
       .eq('synced_ke_proyek', false)
       .order('tanggal', { ascending:false })
       .limit(200);
@@ -6723,6 +6724,7 @@ function renderVisitList(){
     return `<div class="visit-entry ${match?'matched':''}" data-entry-id="${esc(entry.id)}">
       <div class="ve-top"><span>${fmtVisitDate(entry.tanggal)} · ${esc(namaPegawai)} · ${nominal}</span><span>${esc(entry.pekerjaan_nama||'Umum (bukan proyek tertentu)')}</span></div>
       <div class="ve-text">${esc(entry.keterangan||'')}</div>
+      ${entry.direvisi_at ? `<div class="ve-revised">✏️ Pegawai sudah merevisi laporan ini</div>` : ''}
       <div class="ve-comment-row">
         <input type="text" class="ve-admin-comment" data-visit-admin-comment placeholder="💬 Komentar untuk pegawai (opsional, akan tampil di riwayat pegawai)">
         <button type="button" class="btn btn-sm" data-visit-send-comment>Kirim</button>
