@@ -833,7 +833,7 @@ table.jakon td.actions{ white-space:nowrap; }
     <div class="chart-card" id="akses-list-card"></div>
     <div class="chart-card" id="visit-card">
       <div class="toolbar" style="margin-bottom:10px;">
-        <div style="font-size:12.5px;color:var(--muted);flex:1;">Laporan visit <strong>mulai 1 September 2026</strong> yang belum di-approve muncul di sini (visit sebelum itu otomatis kehitung, nggak perlu diapa-apain). <strong>Nominal visit baru masuk hitungan gaji setelah di-approve</strong> (klik "Tambah ke Update" / "Setujui" / "Lewati").</div>
+        <div style="font-size:12.5px;color:var(--muted);flex:1;">Laporan visit <strong>mulai 1 September 2026</strong> yang belum diputuskan muncul di sini (visit sebelum itu otomatis kehitung, nggak perlu diapa-apain). Kalau bidangnya udah ketauan (cocok otomatis / dipilih manual), <strong>update pekerjaan selalu ditambahkan</strong> apapun keputusannya — tombol Setuju/Tolak/Lewati cuma nentuin <strong>nominal & bonus hari masuk</strong> kehitung ke gaji atau tidak.</div>
         <button type="button" class="btn btn-sm" id="visit-refresh-btn">↻ Refresh</button>
       </div>
       <div id="content-visit"></div>
@@ -6735,22 +6735,25 @@ function renderVisitList(){
       </div>
       ${!entry.pekerjaan_nama
         ? `<div class="ve-actions">
-             <button type="button" class="btn btn-sm btn-primary" data-visit-approve-general>✅ Setujui</button>
-             <button type="button" class="btn btn-sm btn-ghost" data-visit-skip>Lewati</button>
+             <button type="button" class="btn btn-sm btn-primary" data-visit-decision="setuju">✅ Setujui</button>
+             <button type="button" class="btn btn-sm btn-ghost" data-visit-decision="lewati">➡️ Lewati</button>
+             <button type="button" class="btn btn-sm btn-danger" data-visit-decision="tolak">❌ Tolak</button>
            </div>`
         : match
         ? `<div class="ve-match">✅ Cocok dengan: ${esc(match.nama_pekerjaan)} (${esc(BIDANG_LABEL[entry.pekerjaan_bidang]||entry.pekerjaan_bidang)})</div>
            <div class="ve-actions">
-             <button type="button" class="btn btn-sm btn-primary" data-visit-sync data-bidang="${esc(entry.pekerjaan_bidang)}" data-job-id="${esc(match._id)}">➕ Tambah ke Update</button>
-             <button type="button" class="btn btn-sm btn-ghost" data-visit-skip>Lewati</button>
+             <button type="button" class="btn btn-sm btn-primary" data-visit-decision="setuju" data-bidang="${esc(entry.pekerjaan_bidang)}" data-job-id="${esc(match._id)}">✅ Setujui</button>
+             <button type="button" class="btn btn-sm btn-ghost" data-visit-decision="lewati" data-bidang="${esc(entry.pekerjaan_bidang)}" data-job-id="${esc(match._id)}">➡️ Lewati</button>
+             <button type="button" class="btn btn-sm btn-danger" data-visit-decision="tolak" data-bidang="${esc(entry.pekerjaan_bidang)}" data-job-id="${esc(match._id)}">❌ Tolak</button>
            </div>`
         : `<div class="ve-actions">
              <select data-visit-bidang-select>
                <option value="">— pilih bidang —</option>
                ${BIDANG_ORDER.map(b=> `<option value="${esc(b)}">${esc(BIDANG_LABEL[b])}</option>`).join('')}
              </select>
-             <button type="button" class="btn btn-sm btn-primary" data-visit-sync-bidang>➕ Tambah ke Update</button>
-             <button type="button" class="btn btn-sm btn-ghost" data-visit-skip>Lewati</button>
+             <button type="button" class="btn btn-sm btn-primary" data-visit-decision="setuju" data-need-bidang="1">✅ Setujui</button>
+             <button type="button" class="btn btn-sm btn-ghost" data-visit-decision="lewati" data-need-bidang="1">➡️ Lewati</button>
+             <button type="button" class="btn btn-sm btn-danger" data-visit-decision="tolak" data-need-bidang="1">❌ Tolak</button>
            </div>`
       }
     </div>`;
@@ -6764,42 +6767,27 @@ function renderVisitList(){
       sendVisitComment(wrap.dataset.entryId, comment, btn);
     });
   });
-  el.querySelectorAll('[data-visit-approve-general]').forEach(btn=>{
+  el.querySelectorAll('[data-visit-decision]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const wrap = btn.closest('[data-entry-id]');
+      const decision = btn.dataset.decision;
+      let bidang = btn.dataset.bidang || '';
+      let jobId = btn.dataset.jobId || '';
+      if(btn.dataset.needBidang){
+        const sel = wrap.querySelector('[data-visit-bidang-select]');
+        bidang = sel.value;
+        if(!bidang){ showToast('Pilih bidangnya dulu.', true); return; }
+        jobId = '';
+      }
+      if(decision==='tolak' && !confirm('Tolak laporan ini? Nominal (uang visit/bensin/tol) dan bonus hari masuk TIDAK akan dihitung sama sekali ke gaji.')) return;
       const adminComment = wrap.querySelector('[data-visit-admin-comment]').value.trim();
-      approveGeneralVisitEntry(wrap.dataset.entryId, adminComment);
-    });
-  });
-  el.querySelectorAll('[data-visit-sync]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const wrap = btn.closest('[data-entry-id]');
-      const adminComment = wrap.querySelector('[data-visit-admin-comment]').value.trim();
-      syncVisitEntry(wrap.dataset.entryId, btn.dataset.bidang, btn.dataset.jobId, adminComment);
-    });
-  });
-  el.querySelectorAll('[data-visit-sync-bidang]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const wrap = btn.closest('[data-entry-id]');
-      const sel = wrap.querySelector('[data-visit-bidang-select]');
-      const bidang = sel.value;
-      if(!bidang){ showToast('Pilih bidangnya dulu.', true); return; }
-      const adminComment = wrap.querySelector('[data-visit-admin-comment]').value.trim();
-      syncVisitEntryByBidang(wrap.dataset.entryId, bidang, adminComment);
-    });
-  });
-  el.querySelectorAll('[data-visit-skip]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const wrap = btn.closest('[data-entry-id]');
-      if(!confirm('Lewati laporan ini tanpa menambahkannya ke Update Pekerjaan?')) return;
-      const adminComment = wrap.querySelector('[data-visit-admin-comment]').value.trim();
-      skipVisitEntry(wrap.dataset.entryId, adminComment);
+      processVisitDecision(wrap.dataset.entryId, decision, bidang, jobId, adminComment);
     });
   });
 }
-async function markVisitSynced(entryId, adminComment){
+async function markVisitSynced(entryId, adminComment, extraFields){
   try{
-    const payload = { synced_ke_proyek: true };
+    const payload = Object.assign({ synced_ke_proyek: true }, extraFields||{});
     if(adminComment){ payload.admin_komentar = adminComment; payload.admin_komentar_at = new Date().toISOString(); }
     await visitSb.from('survey').update(payload).eq('id', entryId);
   }
@@ -6827,50 +6815,41 @@ async function sendVisitComment(entryId, commentText, btn){
     if(btn){ btn.disabled = false; btn.textContent = originalLabel; }
   }
 }
-async function approveGeneralVisitEntry(entryId, adminComment){
-  await markVisitSynced(entryId, adminComment);
-  showToast('Visit disetujui ✓ (nominal masuk hitungan gaji)');
-}
-async function syncVisitEntryByBidang(entryId, bidang, adminComment){
+// Satu-satunya alur keputusan visit lapangan:
+// - Kalau bidang/pekerjaan diketahui (auto-cocok atau dipilih manual), update SELALU ditambahkan
+//   ke catatan_update pekerjaan itu — apapun keputusan nominalnya (setuju/tolak/lewati).
+// - "decision" cuma menentukan nominal (uang visit/bensin/tol) & bonus hari masuk masuk gaji atau tidak.
+async function processVisitDecision(entryId, decision, bidang, jobId, adminComment){
   const entry = visitEntriesCache.find(e=> e.id === entryId);
   if(!entry){ showToast('Data tidak ditemukan, coba refresh.', true); return; }
-  let job = findJobByBidangNama(bidang, entry.pekerjaan_nama);
   let isNewJob = false;
-  if(!job){
-    job = { _id: newId(), no: nextJobNumber(bidang), nama_pekerjaan: entry.pekerjaan_nama, personil: [], catatan_update: [] };
-    if(!STATE[bidang]) STATE[bidang] = [];
-    STATE[bidang].push(job);
-    isNewJob = true;
+  if(bidang){
+    let job = jobId ? findJob(bidang, jobId) : findJobByBidangNama(bidang, entry.pekerjaan_nama);
+    if(!job && !jobId){
+      job = { _id: newId(), no: nextJobNumber(bidang), nama_pekerjaan: entry.pekerjaan_nama, personil: [], catatan_update: [] };
+      if(!STATE[bidang]) STATE[bidang] = [];
+      STATE[bidang].push(job);
+      isNewJob = true;
+    }
+    if(job){
+      const namaPegawai = (entry.pegawai && entry.pegawai.nama) || 'Pegawai';
+      if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
+      job.catatan_update.push({
+        text: entry.keterangan,
+        at: new Date(entry.tanggal+'T00:00:00').toISOString(),
+        by: namaPegawai + ' (Visit Lapangan)'
+      });
+      const saved = await afterMutate();
+      if(!saved){ showToast('Gagal menyimpan update pekerjaan — cek koneksi & coba lagi.', true); return; }
+    }
   }
-  const namaPegawai = (entry.pegawai && entry.pegawai.nama) || 'Pegawai';
-  if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
-  job.catatan_update.push({
-    text: entry.keterangan,
-    at: new Date(entry.tanggal+'T00:00:00').toISOString(),
-    by: namaPegawai + ' (Visit Lapangan)'
-  });
-  const saved = await afterMutate();
-  showToast(saved ? (isNewJob ? `Pekerjaan baru "${job.nama_pekerjaan}" dibuat, update ditambahkan & nominal masuk hitungan gaji ✓` : 'Ditambahkan ke Update Pekerjaan & nominal masuk hitungan gaji ✓') : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
-  if(saved) await markVisitSynced(entryId, adminComment);
-}
-async function syncVisitEntry(entryId, bidang, jobId, adminComment){
-  const entry = visitEntriesCache.find(e=> e.id === entryId);
-  const job = findJob(bidang, jobId);
-  if(!entry || !job){ showToast('Data tidak ditemukan, coba refresh.', true); return; }
-  const namaPegawai = (entry.pegawai && entry.pegawai.nama) || 'Pegawai';
-  if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
-  job.catatan_update.push({
-    text: entry.keterangan,
-    at: new Date(entry.tanggal+'T00:00:00').toISOString(),
-    by: namaPegawai + ' (Visit Lapangan)'
-  });
-  const saved = await afterMutate();
-  showToast(saved ? 'Ditambahkan ke Update Pekerjaan & nominal masuk hitungan gaji ✓' : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
-  if(saved) await markVisitSynced(entryId, adminComment);
-}
-async function skipVisitEntry(entryId, adminComment){
-  await markVisitSynced(entryId, adminComment);
-  showToast('Laporan dilewati (nominal tetap masuk hitungan gaji).');
+  await markVisitSynced(entryId, adminComment, { ditolak: decision==='tolak' });
+  const msgMap = {
+    setuju: isNewJob ? `Pekerjaan baru "${entry.pekerjaan_nama}" dibuat, update ditambahkan & nominal masuk gaji ✓` : (bidang ? 'Update pekerjaan ditambahkan & nominal masuk gaji ✓' : 'Visit disetujui ✓ (nominal masuk hitungan gaji)'),
+    lewati: bidang ? 'Update pekerjaan ditambahkan (nominal tetap masuk gaji).' : 'Laporan dilewati (nominal tetap masuk hitungan gaji).',
+    tolak: bidang ? 'Update pekerjaan tetap ditambahkan, tapi nominal & bonus hari masuk TIDAK dihitung.' : 'Laporan ditolak — nominal & bonus hari masuk tidak dihitung.'
+  };
+  showToast(msgMap[decision]);
 }
 document.getElementById('visit-refresh-btn') && document.getElementById('visit-refresh-btn').addEventListener('click', loadVisitSync);
 
