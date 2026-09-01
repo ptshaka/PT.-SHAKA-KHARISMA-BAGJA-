@@ -6681,6 +6681,27 @@ function fmtVisitDate(tgl){
   if(isNaN(d.getTime())) return tgl;
   return `${d.getDate().toString().padStart(2,'0')} ${BULAN[d.getMonth()]} ${d.getFullYear()}`;
 }
+/* ================= Sinkron daftar pekerjaan -> dropdown "Pekerjaan/Proyek" di form pegawai ================= */
+async function syncOnePekerjaanToSupabase(bidang, nama){
+  if(!bidang || !nama) return;
+  try{
+    if(!visitSb && !initVisitSupabase()) return;
+    await visitSb.from('pekerjaan_list').upsert({ bidang, nama_pekerjaan: nama }, { onConflict: 'bidang,nama_pekerjaan' });
+  }catch(e){ console.warn('Gagal sinkron pekerjaan ke Supabase:', e); }
+}
+async function syncAllPekerjaanToSupabase(){
+  try{
+    if(!visitSb && !initVisitSupabase()) return;
+    const rows = [];
+    BIDANG_ORDER.forEach(bidang=>{
+      (STATE[bidang]||[]).forEach(job=>{
+        if(job.nama_pekerjaan) rows.push({ bidang, nama_pekerjaan: job.nama_pekerjaan });
+      });
+    });
+    if(!rows.length) return;
+    await visitSb.from('pekerjaan_list').upsert(rows, { onConflict: 'bidang,nama_pekerjaan' });
+  }catch(e){ console.warn('Gagal sinkron semua pekerjaan ke Supabase:', e); }
+}
 function updateVisitBadge(){
   const el = document.getElementById('pengaturan-visit-badge');
   if(el) el.innerHTML = visitPendingCount>0 ? ` <span class="nav-badge">${visitPendingCount}</span>` : '';
@@ -6841,6 +6862,7 @@ async function processVisitDecision(entryId, decision, bidang, jobId, adminComme
       });
       const saved = await afterMutate();
       if(!saved){ showToast('Gagal menyimpan update pekerjaan — cek koneksi & coba lagi.', true); return; }
+      if(isNewJob) syncOnePekerjaanToSupabase(bidang, job.nama_pekerjaan);
     }
   }
   await markVisitSynced(entryId, adminComment, { ditolak: decision==='tolak' });
@@ -8079,6 +8101,7 @@ function renderJobCard(j){
       <div class="job-actions">
         <button type="button" class="btn btn-sm" data-edit-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-min-role="editor">✎ Edit Pekerjaan</button>
         <button type="button" class="btn btn-sm" data-catatan-update data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}">🗨 Update Catatan</button>
+        <button type="button" class="btn btn-sm" data-merge-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-min-role="admin">🔀 Gabung ke Pekerjaan Lain</button>
         <button type="button" class="btn btn-sm btn-danger" data-del-job data-bidang="${esc(j.bidang)}" data-id="${esc(j._id)}" data-min-role="admin">🗑 Hapus</button>
       </div>
       <div class="grid-2">
@@ -8978,6 +9001,7 @@ function addOrEditStandardJob(bidang, job){
       }
       const saved = await afterMutate();
       showToast(saved ? (isNew ? 'Pekerjaan baru ditambahkan.' : 'Perubahan disimpan.') : 'Gagal menyimpan — cek koneksi internet, jangan tutup dulu, lalu coba Simpan lagi.', !saved);
+      if(saved && isNew) syncOnePekerjaanToSupabase(bidang, target.nama_pekerjaan);
       return true;
     }
   });
@@ -9015,6 +9039,69 @@ function addOrEditJakon(job){
 
 function findJob(bidang, id){
   return (STATE[bidang]||[]).find(j=>j._id===id);
+}
+function openMergeJobModal(sourceBidang, sourceId){
+  if(!canDelete()){ showToast('Cuma Admin yang bisa menggabungkan pekerjaan.', true); return; }
+  const source = findJob(sourceBidang, sourceId);
+  if(!source){ showToast('Pekerjaan tidak ditemukan.', true); return; }
+  const optionsHTML = BIDANG_ORDER.map(bidang=>{
+    const jobs = (STATE[bidang]||[]).filter(j=> !(bidang===sourceBidang && j._id===sourceId));
+    if(!jobs.length) return '';
+    return `<optgroup label="${esc(BIDANG_LABEL[bidang])}">${jobs.map(j=>`<option value="${esc(bidang)}::${esc(j._id)}">${esc(j.nama_pekerjaan||'(tanpa nama)')}</option>`).join('')}</optgroup>`;
+  }).join('');
+  const bodyHTML = `
+    <div class="field">
+      <label>Pekerjaan sumber (akan dihapus setelah digabung)</label>
+      <div class="v" style="padding:8px 0;font-weight:600">${esc(source.nama_pekerjaan||'(tanpa nama)')} <span class="mono" style="font-weight:400;color:var(--muted)">(${esc(BIDANG_LABEL[sourceBidang])})</span></div>
+    </div>
+    <div class="field">
+      <label>Gabung ke pekerjaan</label>
+      <select data-field="merge-target" required>
+        <option value="">— pilih pekerjaan tujuan —</option>
+        ${optionsHTML}
+      </select>
+    </div>
+    <div class="note-box" style="margin-top:10px">
+      Semua Update Catatan &amp; Personil dari pekerjaan sumber dipindah ke pekerjaan tujuan. Data pagu/kontrak di pekerjaan tujuan yang sudah terisi tidak akan ditimpa — cuma kolom yang masih kosong yang diisi dari pekerjaan sumber.
+    </div>
+  `;
+  showModal({
+    title: 'Gabung Pekerjaan',
+    submitLabel: 'Gabungkan',
+    bodyHTML,
+    onSubmit: async (form)=>{
+      const sel = form.querySelector('[data-field="merge-target"]');
+      const val = sel.value;
+      if(!val){ alert('Pilih pekerjaan tujuan dulu.'); return false; }
+      const [targetBidang, targetId] = val.split('::');
+      const target = findJob(targetBidang, targetId);
+      if(!target){ alert('Pekerjaan tujuan tidak ditemukan.'); return false; }
+      if(!confirm(`Gabungkan "${source.nama_pekerjaan}" ke "${target.nama_pekerjaan}"? Pekerjaan sumber akan dihapus setelah ini.`)) return false;
+
+      const mergedCatatan = [...(target.catatan_update||[]), ...(source.catatan_update||[])];
+      mergedCatatan.sort((a,b)=> (a.at||'').localeCompare(b.at||''));
+      target.catatan_update = mergedCatatan;
+
+      const existingNames = new Set((target.personil||[]).map(p=>(p.nama||'').trim().toLowerCase()));
+      (source.personil||[]).forEach(p=>{
+        const key = (p.nama||'').trim().toLowerCase();
+        if(key && !existingNames.has(key)){ target.personil = target.personil||[]; target.personil.push(p); existingNames.add(key); }
+      });
+
+      const fillIfEmpty = ['perusahaan','nilai_pagu','nilai_diterima','no_spk','tanggal_spk','no_spmk','tanggal_mulai','tanggal_akhir','hari_kerja','status_waktu','progres','status_ringkas','status_data_pekerjaan'];
+      fillIfEmpty.forEach(f=>{
+        if((target[f]===undefined || target[f]===null || target[f]==='') && source[f]!==undefined && source[f]!==null && source[f]!==''){
+          target[f] = source[f];
+        }
+      });
+
+      STATE[sourceBidang] = STATE[sourceBidang].filter(j=>j._id!==sourceId);
+
+      const saved = await afterMutate();
+      showToast(saved ? `Digabung ke "${target.nama_pekerjaan}" ✓` : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
+      return true;
+    }
+  });
 }
 function deleteJob(bidang, id){
   if(!canDelete()){ showToast('Cuma Admin yang bisa menghapus pekerjaan.', true); return; }
@@ -9966,6 +10053,11 @@ document.addEventListener('click', (e)=>{
     deleteJob(delBtn.dataset.bidang, delBtn.dataset.id);
     return;
   }
+  const mergeBtn = e.target.closest('[data-merge-job]');
+  if(mergeBtn){
+    openMergeJobModal(mergeBtn.dataset.bidang, mergeBtn.dataset.id);
+    return;
+  }
   const picSendBtn = e.target.closest('[data-pic-send]');
   if(picSendBtn){
     openPicMessageModal(picSendBtn.dataset.bidang, picSendBtn.dataset.id, picSendBtn.dataset.picType, picSendBtn.dataset.picLjIdx);
@@ -10058,6 +10150,7 @@ async function startApp(){
   await computeCurrentRole();
   renderAll();
   showView();
+  syncAllPekerjaanToSupabase();
   document.getElementById('email-list-card').addEventListener('click', handleEmailListClick);
   document.getElementById('akses-list-card').addEventListener('click', handleAksesListClick);
 
