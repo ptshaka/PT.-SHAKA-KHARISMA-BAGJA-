@@ -7141,8 +7141,10 @@ function daysUntil(dateStr){
   return Math.round((d - today) / (1000*60*60*24));
 }
 function docCompleteCount(j){
-  const fields = ['dok_kak','dok_kontrak','dok_penawaran','dok_laporan','dok_rab','dok_invoice'];
-  return fields.filter(f=> !!j[f]).length;
+  const fields = ['dok_kak','dok_kontrak','dok_penawaran','dok_rab','dok_invoice'];
+  let n = fields.filter(f=> !!j[f]).length;
+  if((j.dok_laporan_list && j.dok_laporan_list.length) || j.dok_laporan) n++;
+  return n;
 }
 function nextActionInfo(j){
   const pencairan = (j.status_pencairan||'').toLowerCase();
@@ -8044,6 +8046,14 @@ function renderTabs(){
 }
 
 /* ================= Job card rendering ================= */
+function laporanChip(bidang, id, job){
+  const list = job.dok_laporan_list;
+  const count = (Array.isArray(list) && list.length) ? list.length : (job.dok_laporan ? 1 : 0);
+  const mark = count>0 ? `${count}` : '–';
+  return `<button type="button" class="chip ${count>0?'ok has-file':''}" data-laporan-field data-bidang="${esc(bidang)}" data-id="${esc(id)}" title="Klik untuk lihat/tambah Laporan${count>0?` (${count} berkas)`:''}">
+    <span class="mark">${mark}</span> Laporan
+  </button>`;
+}
 function docChip(label, val, bidang, id, field){
   const ok = !!val;
   const hasLink = ok && typeof val==='object' && val.url;
@@ -8146,7 +8156,7 @@ function renderJobCard(j){
             ${docChip('KAK', j.dok_kak, j.bidang, j._id, 'dok_kak')}
             ${docChip('Kontrak', j.dok_kontrak, j.bidang, j._id, 'dok_kontrak')}
             ${docChip('Ustek', j.dok_penawaran, j.bidang, j._id, 'dok_penawaran')}
-            ${docChip('Laporan', j.dok_laporan, j.bidang, j._id, 'dok_laporan')}
+            ${laporanChip(j.bidang, j._id, j)}
             ${docChip('RAB Negosiasi', j.dok_rab, j.bidang, j._id, 'dok_rab')}
             ${docChip('Invoice', j.dok_invoice, j.bidang, j._id, 'dok_invoice')}
           </div>
@@ -8261,7 +8271,7 @@ function renderJakonCard(j){
             ${docChip('KAK', j.dok_kak, 'JAKON', j._id, 'dok_kak')}
             ${docChip('Kontrak', j.dok_kontrak, 'JAKON', j._id, 'dok_kontrak')}
             ${docChip('Ustek', j.dok_penawaran, 'JAKON', j._id, 'dok_penawaran')}
-            ${docChip('Laporan', j.dok_laporan, 'JAKON', j._id, 'dok_laporan')}
+            ${laporanChip('JAKON', j._id, j)}
             ${docChip('RAB Negosiasi', j.dok_rab, 'JAKON', j._id, 'dok_rab')}
             ${docChip('Invoice', j.dok_invoice, 'JAKON', j._id, 'dok_invoice')}
           </div>
@@ -9335,6 +9345,111 @@ function openPicMessageModal(bidang, id, picType, ljIndex){
   });
   customInput.addEventListener('input', regenerate);
 }
+function openLaporanModal(bidang, id){
+  const job = findJob(bidang, id);
+  if(!job) return;
+  if(!Array.isArray(job.dok_laporan_list)){
+    job.dok_laporan_list = [];
+    if(job.dok_laporan){
+      const old = (typeof job.dok_laporan==='object') ? job.dok_laporan : { label: job.dok_laporan };
+      job.dok_laporan_list.push(Object.assign({ uploaded_at: new Date().toISOString() }, old));
+    }
+  }
+
+  function renderBody(){
+    const list = job.dok_laporan_list || [];
+    const listHTML = list.length ? list.map((d,i)=>{
+      const hasLink = !!d.url;
+      const hasFile = !!(d.fileData || d.fileRef);
+      const mark = hasLink ? '🔗' : (hasFile ? '📎' : '–');
+      return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:12.5px;">
+          <div style="font-weight:600;">${mark} ${esc(d.label || d.fileName || 'Laporan')}</div>
+          ${d.uploaded_at ? `<div style="color:var(--muted);font-size:11px;">${fmtDateTime(d.uploaded_at)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button type="button" class="btn btn-sm" data-laporan-view="${i}">Lihat/Unduh</button>
+          ${canDelete() ? `<button type="button" class="btn btn-sm btn-danger" data-laporan-del="${i}">Hapus</button>` : ''}
+        </div>
+      </div>`;
+    }).join('') : `<div style="color:var(--muted);font-size:12px;padding:8px 0;">Belum ada laporan yang diupload.</div>`;
+
+    return `
+      <div class="field"><label>Daftar Laporan (${list.length})</label>${listHTML}</div>
+      ${canEdit() ? `
+      <div class="field" style="margin-top:14px;"><label>Nama/Keterangan Laporan Baru</label><input type="text" id="laporan-label-input" placeholder="mis. Laporan Bulan 1, Laporan Akhir, dst"></div>
+      <div class="field"><label>Upload Berkas (PDF/JPG/PNG/Word/Excel)</label><input type="file" id="laporan-file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"></div>
+      <div style="text-align:center;color:var(--muted);font-size:11px;margin:8px 0;">— atau —</div>
+      <div class="field"><label>Tempel Link (Google Drive / OneDrive, dll)</label><input type="url" id="laporan-link-input" placeholder="https://drive.google.com/file/d/..."></div>
+      <button type="button" class="btn btn-primary" id="laporan-add-btn" style="margin-top:6px;">+ Tambah ke Daftar Laporan</button>
+      ` : ''}
+    `;
+  }
+
+  const modal = showModal({ title: `Laporan — ${job.nama_pekerjaan||'(tanpa nama)'}`, bodyHTML: renderBody(), viewOnly: true });
+
+  function wireEvents(){
+    modal.querySelectorAll('[data-laporan-view]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const d = job.dok_laporan_list[Number(btn.dataset.laporanView)];
+        if(d.url) window.open(d.url, '_blank');
+        else openStoredFile(d);
+      });
+    });
+    modal.querySelectorAll('[data-laporan-del]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        if(!confirm('Hapus laporan ini?')) return;
+        job.dok_laporan_list.splice(Number(btn.dataset.laporanDel), 1);
+        const saved = await afterMutate();
+        showToast(saved ? 'Laporan dihapus.' : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
+        refresh();
+      });
+    });
+    const addBtn = modal.querySelector('#laporan-add-btn');
+    if(addBtn) addBtn.addEventListener('click', async ()=>{
+      const label = modal.querySelector('#laporan-label-input').value.trim();
+      const linkVal = modal.querySelector('#laporan-link-input').value.trim();
+      const fileInput = modal.querySelector('#laporan-file-input');
+      const f = fileInput.files[0];
+      if(!label && !linkVal && !f){ alert('Isi nama laporan, upload berkas, atau tempel link dulu.'); return; }
+      addBtn.disabled = true; addBtn.textContent = 'Menyimpan…';
+      let entry = { label: label || null, uploaded_at: new Date().toISOString() };
+      if(linkVal){
+        entry.url = linkVal;
+      } else if(f){
+        if(!fbDb && f.size > 2*1024*1024){
+          if(!confirm(`Berkas "${f.name}" (${fmtBytes(f.size)}) cukup besar dan mode lokal (belum ada sinkron cloud). Lanjutkan tetap melampirkan?`)){
+            addBtn.disabled = false; addBtn.textContent = '+ Tambah ke Daftar Laporan';
+            return;
+          }
+        }
+        try{
+          const dataUrl = await readFileAsDataURL(f);
+          if(fbDb && fbAuth && fbAuth.currentUser){
+            const fileRef = newFileRef();
+            showToast(`Mengupload berkas ke cloud (${fmtBytes(f.size)})…`);
+            const ok = await saveFileToCloud(fileRef, dataUrl, (done,total)=>{ if(total>3) showToast(`Mengupload… (${done}/${total} potongan)`); });
+            if(ok){ entry.fileName=f.name; entry.fileType=f.type||'application/octet-stream'; entry.fileRef=fileRef; }
+            else if(f.size<=2*1024*1024){ entry.fileName=f.name; entry.fileType=f.type||'application/octet-stream'; entry.fileData=dataUrl; showToast('Gagal upload ke cloud, disimpan lokal aja dulu.', true); }
+            else { showToast(`Gagal upload "${f.name}" ke cloud dan berkas ini kegedean buat lokal — pakai "Tempel Link" aja.`, true); addBtn.disabled=false; addBtn.textContent='+ Tambah ke Daftar Laporan'; return; }
+          } else {
+            entry.fileName=f.name; entry.fileType=f.type||'application/octet-stream'; entry.fileData=dataUrl;
+          }
+        }catch(err){ showToast('Gagal membaca berkas.', true); addBtn.disabled=false; addBtn.textContent='+ Tambah ke Daftar Laporan'; return; }
+      }
+      if(!Array.isArray(job.dok_laporan_list)) job.dok_laporan_list = [];
+      job.dok_laporan_list.push(entry);
+      const saved = await afterMutate();
+      showToast(saved ? 'Laporan ditambahkan ✓' : 'Gagal menyimpan — cek koneksi & coba lagi.', !saved);
+      refresh();
+    });
+  }
+  function refresh(){
+    modal.querySelector('.modal-body').innerHTML = renderBody();
+    wireEvents();
+  }
+  wireEvents();
+}
 function openDocModal(bidang, id, field, fieldLabel){
   const job = findJob(bidang, id);
   if(!job) return;
@@ -10041,6 +10156,11 @@ document.addEventListener('click', (e)=>{
   const docBtn = e.target.closest('[data-doc-field]');
   if(docBtn){
     openDocModal(docBtn.dataset.bidang, docBtn.dataset.id, docBtn.dataset.field, docBtn.dataset.label);
+    return;
+  }
+  const laporanBtn = e.target.closest('[data-laporan-field]');
+  if(laporanBtn){
+    openLaporanModal(laporanBtn.dataset.bidang, laporanBtn.dataset.id);
     return;
   }
   const catUpdateBtn = e.target.closest('[data-catatan-update]');
