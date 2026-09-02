@@ -6719,7 +6719,7 @@ async function loadVisitSync(){
   el.innerHTML = `<div class="loading-box">Memuat laporan visit…</div>`;
   try{
     const { data, error } = await visitSb.from('survey')
-      .select('id, tanggal, keterangan, pekerjaan_bidang, pekerjaan_nama, total, direvisi_at, pegawai:pegawai_id(nama)')
+      .select('id, tanggal, jam_mulai, keterangan, pekerjaan_bidang, pekerjaan_nama, total, direvisi_at, pegawai:pegawai_id(nama)')
       .eq('synced_ke_proyek', false)
       .gte('tanggal', VISIT_APPROVAL_CUTOFF)
       .order('tanggal', { ascending:false })
@@ -6807,17 +6807,23 @@ function renderVisitList(){
   });
 }
 async function markVisitSynced(entryId, adminComment, extraFields){
+  const payload = Object.assign({ synced_ke_proyek: true }, extraFields||{});
+  if(adminComment){ payload.admin_komentar = adminComment; payload.admin_komentar_at = new Date().toISOString(); }
   try{
-    const payload = Object.assign({ synced_ke_proyek: true }, extraFields||{});
-    if(adminComment){ payload.admin_komentar = adminComment; payload.admin_komentar_at = new Date().toISOString(); }
-    await visitSb.from('survey').update(payload).eq('id', entryId);
+    const { error } = await visitSb.from('survey').update(payload).eq('id', entryId);
+    if(error) throw error;
   }
-  catch(e){ console.warn('Gagal update status sinkron di Supabase:', e); }
+  catch(e){
+    console.warn('Gagal update status sinkron di Supabase:', e);
+    showToast('Gagal menyimpan status ke database (' + (e.message||'cek koneksi/izin akses') + '). Laporan ini TETAP ada di daftar, coba lagi.', true);
+    return false;
+  }
   visitEntriesCache = visitEntriesCache.filter(e=> e.id !== entryId);
   visitPendingCount = visitEntriesCache.length;
   renderMainNav();
   updateVisitBadge();
   renderVisitList();
+  return true;
 }
 async function sendVisitComment(entryId, commentText, btn){
   if(!commentText){ showToast('Isi komentarnya dulu.', true); return; }
@@ -6857,7 +6863,7 @@ async function processVisitDecision(entryId, decision, bidang, jobId, adminComme
       if(!Array.isArray(job.catatan_update)) job.catatan_update = [];
       job.catatan_update.push({
         text: entry.keterangan,
-        at: new Date(entry.tanggal+'T00:00:00').toISOString(),
+        at: new Date(entry.tanggal + 'T' + (entry.jam_mulai || '08:00:00')).toISOString(),
         by: namaPegawai + ' (Visit Lapangan)'
       });
       const saved = await afterMutate();
@@ -6865,7 +6871,8 @@ async function processVisitDecision(entryId, decision, bidang, jobId, adminComme
       if(isNewJob) syncOnePekerjaanToSupabase(bidang, job.nama_pekerjaan);
     }
   }
-  await markVisitSynced(entryId, adminComment, { ditolak: decision==='tolak' });
+  const ok = await markVisitSynced(entryId, adminComment, { ditolak: decision==='tolak' });
+  if(!ok) return; // markVisitSynced sudah nampilin pesan errornya sendiri
   const msgMap = {
     setuju: isNewJob ? `Pekerjaan baru "${entry.pekerjaan_nama}" dibuat, update ditambahkan & nominal masuk gaji ✓` : (bidang ? 'Update pekerjaan ditambahkan & nominal masuk gaji ✓' : 'Visit disetujui ✓ (nominal masuk hitungan gaji)'),
     lewati: bidang ? 'Update pekerjaan ditambahkan (nominal tetap masuk gaji).' : 'Laporan dilewati (nominal tetap masuk hitungan gaji).',
