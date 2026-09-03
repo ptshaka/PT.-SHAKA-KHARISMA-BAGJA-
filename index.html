@@ -6791,7 +6791,7 @@ function renderVisitList(){
   el.querySelectorAll('[data-visit-decision]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const wrap = btn.closest('[data-entry-id]');
-      const decision = btn.dataset.decision;
+      const decision = btn.dataset.visitDecision;
       let bidang = btn.dataset.bidang || '';
       let jobId = btn.dataset.jobId || '';
       if(btn.dataset.needBidang){
