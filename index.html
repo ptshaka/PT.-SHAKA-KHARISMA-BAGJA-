@@ -6747,7 +6747,7 @@ function renderVisitList(){
     const namaPegawai = (entry.pegawai && entry.pegawai.nama) || 'Pegawai';
     const nominal = typeof entry.total === 'number' ? `Rp ${Math.round(entry.total).toLocaleString('id-ID')}` : '–';
     return `<div class="visit-entry ${match?'matched':''}" data-entry-id="${esc(entry.id)}">
-      <div class="ve-top"><span>${fmtVisitDate(entry.tanggal)} · ${esc(namaPegawai)} · ${nominal}</span><span>${esc(entry.pekerjaan_nama||'Umum (bukan proyek tertentu)')}</span></div>
+      <div class="ve-top"><span>${fmtVisitDate(entry.tanggal)} · ${esc(namaPegawai)} · ${nominal}</span><span>${esc(entry.pekerjaan_nama||'Operasional Lain')}</span></div>
       <div class="ve-text">${esc(entry.keterangan||'')}</div>
       ${entry.direvisi_at ? `<div class="ve-revised">✏️ Pegawai sudah merevisi laporan ini</div>` : ''}
       <div class="ve-comment-row">
